@@ -219,6 +219,63 @@ validate_cde_classification_map_v2 <- function(
     )
   }
   
+  # ---------------------------------------
+  # Validate canonical classification IDs
+  # ---------------------------------------
+  
+  canonical_classifications <- unique(
+    classification_map[
+      c(
+        "group_num",
+        "num",
+        "label",
+        "group"
+      )
+    ]
+  )
+  
+  canonical_key_columns <- c(
+    "group_num",
+    "num"
+  )
+  
+  inconsistent_canonical_key <- duplicated(
+    canonical_classifications[
+      canonical_key_columns
+    ]
+  ) |
+    duplicated(
+      canonical_classifications[
+        canonical_key_columns
+      ],
+      fromLast = TRUE
+    )
+  
+  if (any(inconsistent_canonical_key)) {
+    inconsistent_rows <- canonical_classifications[
+      inconsistent_canonical_key,
+      ,
+      drop = FALSE
+    ]
+    
+    inconsistent_key_text <- paste(
+      utils::capture.output(
+        print(
+          inconsistent_rows,
+          row.names = FALSE
+        )
+      ),
+      collapse = "\n"
+    )
+    
+    stop(
+      "The classification map assigns the same canonical ",
+      "`group_num` and `num` combination to multiple labels:\n",
+      inconsistent_key_text,
+      call. = FALSE
+    )
+  }
+  
   missing_classification <- (
     is.na(classification_map$label) |
       trimws(classification_map$label) == "" |
@@ -407,6 +464,15 @@ cde_common_classification_rows_v2 <- function() {
   )
   
   # ---------------------------------------
+  # Stable staff-gender codes
+  # ---------------------------------------
+  
+  staff_gender_map <- gender_map |>
+    dplyr::mutate(
+      variable_type = "staff_gender"
+    )
+  
+  # ---------------------------------------
   # Age ranges
   # ---------------------------------------
   
@@ -504,6 +570,7 @@ cde_common_classification_rows_v2 <- function() {
     grade_map,
     grade_span_map,
     gender_map,
+    staff_gender_map,
     age_range_map,
     student_subgroup_map,
     english_status_map,
@@ -522,6 +589,122 @@ cde_common_classification_rows_v2 <- function() {
     )
   
   common_map
+}
+
+
+# -----------------------------------------------------------------------------
+# Context-specific CDE classification rows
+# -----------------------------------------------------------------------------
+
+cde_context_classification_rows_v2 <- function(
+    dataset,
+    file_type,
+    data_year) {
+  
+  context_map <- tibble::tibble(
+    variable_type = character(),
+    source_value = character(),
+    label = character(),
+    num = integer(),
+    group_num = integer(),
+    group = character(),
+    source_note = character()
+  )
+  
+  # ---------------------------------------
+  # Graduation and dropout gender drift
+  # ---------------------------------------
+  #
+  # In the 2018-19 files, GX represented missing gender.
+  # Beginning with 2019-20, GX represented non-binary gender.
+  
+  if (
+    dataset == "graduation" &&
+    file_type %in%
+    c(
+      "cohort",
+      "dropout"
+    )
+  ) {
+    
+    if (data_year == 19L) {
+      context_map <- dplyr::bind_rows(
+        context_map,
+        tibble::tribble(
+          ~variable_type,       ~source_value, ~label,           ~num, ~group_num, ~group,  ~source_note,
+          "reporting_category", "GX",          "Gender Missing", 36L,  4L,         "Gender",
+          "CDE schema drift: GX represented missing gender in 2018-19 graduation and dropout files."
+        )
+      )
+    }
+    
+    if (data_year >= 20L) {
+      context_map <- dplyr::bind_rows(
+        context_map,
+        tibble::tribble(
+          ~variable_type,       ~source_value, ~label,       ~num, ~group_num, ~group,  ~source_note,
+          "reporting_category", "GX",          "Non-Binary", 35L,  4L,         "Gender",
+          "CDE schema drift: GX represented non-binary gender beginning in 2019-20 graduation and dropout files."
+        )
+      )
+    }
+  }
+  
+  # ---------------------------------------
+  # Restraint and seclusion gender codes
+  # ---------------------------------------
+  #
+  # Restraint and seclusion files use GN for non-binary
+  # and GX for missing gender.
+  
+  if (
+    dataset == "restraint_seclusion" &&
+    file_type == "overall" &&
+    data_year >= 20L
+  ) {
+    context_map <- dplyr::bind_rows(
+      context_map,
+      tibble::tribble(
+        ~variable_type,       ~source_value, ~label,           ~num, ~group_num, ~group,  ~source_note,
+        "reporting_category", "GN",          "Non-Binary",     35L,  4L,         "Gender",
+        "CDE schema drift: restraint and seclusion files use GN for non-binary gender.",
+        "reporting_category", "GX",          "Gender Missing", 36L,  4L,         "Gender",
+        "CDE schema drift: restraint and seclusion files use GX for missing gender."
+      )
+    )
+  }
+  
+  # ---------------------------------------
+  # Certificated staff all-gender category
+  # ---------------------------------------
+  #
+  # ALL in staff_gender means all genders. It must not
+  # inherit the grade-span meaning of ALL.
+  
+  if (
+    dataset == "certificated_staff" &&
+    file_type == "race_ethnicity" &&
+    data_year >= 20L
+  ) {
+    context_map <- dplyr::bind_rows(
+      context_map,
+      tibble::tribble(
+        ~variable_type, ~source_value, ~label, ~num, ~group_num, ~group,  ~source_note,
+        "staff_gender", "ALL",         "All",  87L,  4L,         "Gender",
+        "CDE schema drift: ALL in certificated staff gender represents all genders, not a school grade span. Canonical ID 87 replaces the legacy post-processing assignment of 36."
+      )
+    )
+  }
+  
+  context_map <- context_map |>
+    dplyr::mutate(
+      source_value =
+        standardize_cde_source_value_v2(
+          .data$source_value
+        )
+    )
+  
+  context_map
 }
 
 
@@ -578,8 +761,20 @@ cde_classification_map_v2 <- function(
     data_year
   )
   
-  classification_map <-
+  common_map <-
     cde_common_classification_rows_v2()
+  
+  context_map <-
+    cde_context_classification_rows_v2(
+      dataset = dataset,
+      file_type = file_type,
+      data_year = data_year
+    )
+  
+  classification_map <- dplyr::bind_rows(
+    common_map,
+    context_map
+  )
   
   classification_map <- classification_map |>
     dplyr::mutate(
@@ -627,3 +822,550 @@ cde_classification_map_v2 <- function(
   classification_map
 }
 
+# -----------------------------------------------------------------------------
+# Comprehensive canonical CDE classification lookup
+# -----------------------------------------------------------------------------
+
+#' Return the comprehensive CDE classification lookup
+#'
+#' Returns one row per canonical CDE classification. The combination of
+#' `group_num` and `num` uniquely identifies each human-readable label.
+#'
+#' @return A tibble containing `group_num`, `num`, `label`, and `group`.
+#'
+#' @export
+cde_classification_lookup_v2 <- function() {
+  
+  common_classifications <-
+    cde_common_classification_rows_v2() |>
+    dplyr::select(
+      "group_num",
+      "num",
+      "label",
+      "group"
+    )
+  
+  # Canonical classifications introduced by contextual rules
+  contextual_classifications <- tibble::tribble(
+    ~group_num, ~num, ~label, ~group,
+    4L,         87L,  "All",  "Gender"
+  )
+  
+  classification_lookup <- dplyr::bind_rows(
+    common_classifications,
+    contextual_classifications
+  ) |>
+    dplyr::distinct(
+      .data$group_num,
+      .data$num,
+      .data$label,
+      .data$group
+    ) |>
+    dplyr::arrange(
+      .data$group_num,
+      .data$num
+    )
+  
+  duplicate_canonical_key <- duplicated(
+    classification_lookup[
+      c(
+        "group_num",
+        "num"
+      )
+    ]
+  ) |
+    duplicated(
+      classification_lookup[
+        c(
+          "group_num",
+          "num"
+        )
+      ],
+      fromLast = TRUE
+    )
+  
+  if (any(duplicate_canonical_key)) {
+    duplicate_rows <- classification_lookup[
+      duplicate_canonical_key,
+      ,
+      drop = FALSE
+    ]
+    
+    stop(
+      "The comprehensive CDE classification lookup contains ",
+      "duplicate canonical keys:\n",
+      paste(
+        utils::capture.output(
+          print(
+            duplicate_rows,
+            row.names = FALSE
+          )
+        ),
+        collapse = "\n"
+      ),
+      call. = FALSE
+    )
+  }
+  
+  classification_lookup$group_num <- as.integer(
+    classification_lookup$group_num
+  )
+  
+  classification_lookup$num <- as.integer(
+    classification_lookup$num
+  )
+  
+  rownames(classification_lookup) <- NULL
+  
+  tibble::as_tibble(
+    classification_lookup
+  )
+}
+
+#' Label CDE-file classifications using contextual mappings
+#'
+#' Applies dataset-, file-, year-, and variable-specific classification maps
+#' to one or more columns in a CDE data file.
+#'
+#' @param df A data frame containing CDE classification columns.
+#' @param var_names Character vector containing source-column names.
+#' @param output_names Character vector containing output-column prefixes.
+#' @param variable_types Character vector identifying the semantic type of
+#'   each source column. Supported values are `"reporting_category"`,
+#'   `"grade"`, `"grade_span"`, and `"staff_gender"`.
+#' @param dataset Character value identifying the CDE dataset family.
+#' @param file_type Character value identifying the file type within the
+#'   dataset family.
+#' @param data_year Two-digit ending year, such as `25`.
+#' @param validate If `TRUE`, print the observed mappings and row counts.
+#' @param fail_on_unmapped If `TRUE`, stop when a nonmissing source value
+#'   cannot be mapped. If `FALSE`, issue a warning.
+#' @param return_map If `TRUE`, return a named list containing the labeled
+#'   data in `data` and the applicable classification map in `map`.
+#'
+#' @return If `return_map = FALSE`, the original data frame with four new
+#'   columns per source variable: `<prefix>_label`, `<prefix>_num`,
+#'   `<prefix>_group_num`, and `<prefix>_group`. If `return_map = TRUE`,
+#'   a named list containing the labeled data and applicable map.
+#'
+#' @export
+cde_files_group_labeling_v2 <- function(
+    df,
+    var_names,
+    output_names,
+    variable_types,
+    dataset,
+    file_type,
+    data_year,
+    validate = FALSE,
+    fail_on_unmapped = TRUE,
+    return_map = FALSE) {
+  
+  # ---------------------------------------
+  # Validate data and column arguments
+  # ---------------------------------------
+  
+  if (!is.data.frame(df)) {
+    stop(
+      "`df` must be a data frame.",
+      call. = FALSE
+    )
+  }
+  
+  argument_lengths <- c(
+    var_names = length(var_names),
+    output_names = length(output_names),
+    variable_types = length(variable_types)
+  )
+  
+  if (length(unique(argument_lengths)) != 1L) {
+    stop(
+      "`var_names`, `output_names`, and `variable_types` ",
+      "must have the same length.",
+      call. = FALSE
+    )
+  }
+  
+  if (length(var_names) == 0L) {
+    stop(
+      "At least one source column must be supplied.",
+      call. = FALSE
+    )
+  }
+  
+  character_arguments <- list(
+    var_names = var_names,
+    output_names = output_names,
+    variable_types = variable_types
+  )
+  
+  invalid_character_arguments <- names(
+    character_arguments
+  )[
+    !vapply(
+      character_arguments,
+      is.character,
+      logical(1)
+    )
+  ]
+  
+  if (length(invalid_character_arguments) > 0L) {
+    stop(
+      "The following argument(s) must be character vectors: ",
+      paste(
+        invalid_character_arguments,
+        collapse = ", "
+      ),
+      ".",
+      call. = FALSE
+    )
+  }
+  
+  missing_argument_values <- vapply(
+    character_arguments,
+    function(value) {
+      anyNA(value) ||
+        any(trimws(value) == "")
+    },
+    logical(1)
+  )
+  
+  if (any(missing_argument_values)) {
+    stop(
+      "The following argument(s) contain missing or blank values: ",
+      paste(
+        names(missing_argument_values)[
+          missing_argument_values
+        ],
+        collapse = ", "
+      ),
+      ".",
+      call. = FALSE
+    )
+  }
+  
+  missing_columns <- setdiff(
+    var_names,
+    names(df)
+  )
+  
+  if (length(missing_columns) > 0L) {
+    stop(
+      "Missing CDE source column(s): ",
+      paste(
+        missing_columns,
+        collapse = ", "
+      ),
+      ".",
+      call. = FALSE
+    )
+  }
+  
+  duplicated_output_names <- unique(
+    output_names[
+      duplicated(output_names)
+    ]
+  )
+  
+  if (length(duplicated_output_names) > 0L) {
+    stop(
+      "`output_names` contains duplicate prefix(es): ",
+      paste(
+        duplicated_output_names,
+        collapse = ", "
+      ),
+      ".",
+      call. = FALSE
+    )
+  }
+  
+  valid_variable_types <- c(
+    "reporting_category",
+    "grade",
+    "grade_span",
+    "staff_gender"
+  )
+  
+  invalid_variable_types <- setdiff(
+    variable_types,
+    valid_variable_types
+  )
+  
+  if (length(invalid_variable_types) > 0L) {
+    stop(
+      "`variable_types` contains invalid value(s): ",
+      paste(
+        invalid_variable_types,
+        collapse = ", "
+      ),
+      ". Valid values are: ",
+      paste(
+        valid_variable_types,
+        collapse = ", "
+      ),
+      ".",
+      call. = FALSE
+    )
+  }
+  
+  # ---------------------------------------
+  # Validate logical arguments
+  # ---------------------------------------
+  
+  logical_arguments <- list(
+    validate = validate,
+    fail_on_unmapped = fail_on_unmapped,
+    return_map = return_map
+  )
+  
+  invalid_logical_arguments <- names(
+    logical_arguments
+  )[
+    !vapply(
+      logical_arguments,
+      function(value) {
+        is.logical(value) &&
+          length(value) == 1L &&
+          !is.na(value)
+      },
+      logical(1)
+    )
+  ]
+  
+  if (length(invalid_logical_arguments) > 0L) {
+    stop(
+      "The following argument(s) must be either `TRUE` or `FALSE`: ",
+      paste(
+        invalid_logical_arguments,
+        collapse = ", "
+      ),
+      ".",
+      call. = FALSE
+    )
+  }
+  
+  # ---------------------------------------
+  # Build the applicable classification map
+  # ---------------------------------------
+  
+  classification_map <-
+    cde_classification_map_v2(
+      dataset = dataset,
+      file_type = file_type,
+      data_year = data_year
+    )
+  
+  # ---------------------------------------
+  # Apply each requested classification
+  # ---------------------------------------
+  
+  for (index in seq_along(
+    var_names
+  )) {
+    
+    source_column <- var_names[[index]]
+    output_prefix <- output_names[[index]]
+    variable_type <- variable_types[[index]]
+    
+    lookup <- classification_map[
+      classification_map$variable_type ==
+        variable_type,
+      ,
+      drop = FALSE
+    ]
+    
+    if (nrow(lookup) == 0L) {
+      stop(
+        "No classification rows are available for variable type `",
+        variable_type,
+        "` in dataset `",
+        tolower(trimws(dataset)),
+        "`, file type `",
+        tolower(trimws(file_type)),
+        "`, and data year ",
+        as.integer(data_year),
+        ".",
+        call. = FALSE
+      )
+    }
+    
+    source_value <-
+      standardize_cde_source_value_v2(
+        df[[source_column]]
+      )
+    
+    match_index <- match(
+      source_value,
+      lookup$source_value
+    )
+    
+    source_is_missing <- is.na(
+      source_value
+    )
+    
+    unmapped <- (
+      !source_is_missing &
+        is.na(match_index)
+    )
+    
+    if (any(unmapped)) {
+      unmapped_values <- sort(unique(
+        source_value[
+          unmapped
+        ]
+      ))
+      
+      unmapped_message <- paste0(
+        "Dataset `",
+        tolower(trimws(dataset)),
+        "`, file type `",
+        tolower(trimws(file_type)),
+        "`, and data year ",
+        as.integer(data_year),
+        " contain unmapped value(s) in `",
+        source_column,
+        "` for variable type `",
+        variable_type,
+        "`: ",
+        paste(
+          unmapped_values,
+          collapse = ", "
+        ),
+        ". Update the contextual classification map before continuing."
+      )
+      
+      if (isTRUE(fail_on_unmapped)) {
+        stop(
+          unmapped_message,
+          call. = FALSE
+        )
+      } else {
+        warning(
+          unmapped_message,
+          call. = FALSE
+        )
+      }
+    }
+    
+    df[[
+      paste0(
+        output_prefix,
+        "_label"
+      )
+    ]] <- lookup$label[
+      match_index
+    ]
+    
+    df[[
+      paste0(
+        output_prefix,
+        "_num"
+      )
+    ]] <- lookup$num[
+      match_index
+    ]
+    
+    df[[
+      paste0(
+        output_prefix,
+        "_group_num"
+      )
+    ]] <- lookup$group_num[
+      match_index
+    ]
+    
+    df[[
+      paste0(
+        output_prefix,
+        "_group"
+      )
+    ]] <- lookup$group[
+      match_index
+    ]
+    
+    # -------------------------------------
+    # Optional mapping summary
+    # -------------------------------------
+    
+    if (isTRUE(validate)) {
+      observed_frequency <- table(
+        source_value,
+        useNA = "no"
+      )
+      
+      observed_values <- names(
+        observed_frequency
+      )
+      
+      validation_table <- lookup[
+        lookup$source_value %in%
+          observed_values,
+        c(
+          "source_value",
+          "label",
+          "num",
+          "group_num",
+          "group",
+          "source_note"
+        ),
+        drop = FALSE
+      ]
+      
+      validation_table$rows <- as.integer(
+        observed_frequency[
+          match(
+            validation_table$source_value,
+            observed_values
+          )
+        ]
+      )
+      
+      validation_table <- validation_table[
+        order(
+          validation_table$source_value
+        ),
+        ,
+        drop = FALSE
+      ]
+      
+      rownames(validation_table) <- NULL
+      
+      message(
+        "\n--- ",
+        source_column,
+        " mapping ---"
+      )
+      
+      print(
+        validation_table,
+        row.names = FALSE
+      )
+    }
+  }
+  
+  # ---------------------------------------
+  # Return data and optional map
+  # ---------------------------------------
+  
+  if (isTRUE(return_map)) {
+    map_used <- classification_map[
+      classification_map$variable_type %in%
+        unique(variable_types),
+      ,
+      drop = FALSE
+    ]
+    
+    rownames(map_used) <- NULL
+    
+    return(
+      list(
+        data = df,
+        map = tibble::as_tibble(
+          map_used
+        )
+      )
+    )
+  }
+  
+  df
+}
