@@ -771,3 +771,73 @@ testthat::test_that(
     )
   }
 )
+
+test_that(
+  "certificated staff gender codes use their contextual meanings",
+  {
+    test_data <- data.frame(
+      school_grade_span = c(
+        "ALL",
+        "GS_912"
+      ),
+      staff_gender = c(
+        "ALL",
+        "GX"
+      ),
+      stringsAsFactors = FALSE
+    )
+    
+    result <- cde_files_group_labeling_v2(
+      df = test_data,
+      var_names = c(
+        "school_grade_span",
+        "staff_gender"
+      ),
+      output_names = c(
+        "grade_span",
+        "gender"
+      ),
+      variable_types = c(
+        "grade_span",
+        "staff_gender"
+      ),
+      dataset = "certificated_staff",
+      file_type = "race_ethnicity",
+      data_year = 20L,
+      validate = FALSE,
+      fail_on_unmapped = TRUE
+    )
+    
+    expect_identical(
+      result$grade_span_num,
+      c(
+        75L,
+        78L
+      )
+    )
+    
+    expect_identical(
+      result$gender_label,
+      c(
+        "All",
+        "Non-Binary"
+      )
+    )
+    
+    expect_identical(
+      result$gender_num,
+      c(
+        87L,
+        35L
+      )
+    )
+    
+    expect_identical(
+      result$gender_group_num,
+      c(
+        4L,
+        4L
+      )
+    )
+  }
+)

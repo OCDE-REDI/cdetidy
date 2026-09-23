@@ -689,9 +689,36 @@ cde_context_classification_rows_v2 <- function(
     context_map <- dplyr::bind_rows(
       context_map,
       tibble::tribble(
-        ~variable_type, ~source_value, ~label, ~num, ~group_num, ~group,  ~source_note,
-        "staff_gender", "ALL",         "All",  87L,  4L,         "Gender",
-        "CDE schema drift: ALL in certificated staff gender represents all genders, not a school grade span. Canonical ID 87 replaces the legacy post-processing assignment of 36."
+        ~variable_type,
+        ~source_value,
+        ~label,
+        ~num,
+        ~group_num,
+        ~group,
+        ~source_note,
+        
+        "staff_gender",
+        "ALL",
+        "All",
+        87L,
+        4L,
+        "Gender",
+        paste(
+          "CDE staff race/ethnicity files use ALL",
+          "for all staff genders. Canonical ID 87",
+          "replaces the legacy assignment of 36."
+        ),
+        
+        "staff_gender",
+        "GX",
+        "Non-Binary",
+        35L,
+        4L,
+        "Gender",
+        paste(
+          "CDE staff race/ethnicity files use GX",
+          "for non-binary staff gender."
+        )
       )
     )
   }
