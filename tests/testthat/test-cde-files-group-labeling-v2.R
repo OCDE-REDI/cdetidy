@@ -841,3 +841,85 @@ test_that(
     )
   }
 )
+
+test_that(
+  "missing variable_types reports supported options",
+  {
+    expect_error(
+      cde_files_group_labeling_v2(
+        df = data.frame(
+          reporting_category = "GF"
+        ),
+        var_names = "reporting_category",
+        output_names = "demo_group",
+        dataset = "graduation",
+        file_type = "cohort",
+        data_year = 20L
+      ),
+      paste0(
+        "`variable_types` is required.*",
+        "reporting_category.*grade.*",
+        "grade_span.*staff_gender"
+      )
+    )
+  }
+)
+
+test_that(
+  "unsupported variable_types reports supported options",
+  {
+    captured_error <- expect_error(
+      cde_files_group_labeling_v2(
+        df = data.frame(
+          reporting_category = "GF"
+        ),
+        var_names = "reporting_category",
+        output_names = "demo_group",
+        variable_types = "gender",
+        dataset = "graduation",
+        file_type = "cohort",
+        data_year = 20L
+      )
+    )
+    
+    error_message <- conditionMessage(
+      captured_error
+    )
+    
+    expect_match(
+      error_message,
+      "Unsupported `variable_types` value(s):",
+      fixed = TRUE
+    )
+    
+    expect_match(
+      error_message,
+      "- gender",
+      fixed = TRUE
+    )
+    
+    expect_match(
+      error_message,
+      "- reporting_category",
+      fixed = TRUE
+    )
+    
+    expect_match(
+      error_message,
+      "- grade",
+      fixed = TRUE
+    )
+    
+    expect_match(
+      error_message,
+      "- grade_span",
+      fixed = TRUE
+    )
+    
+    expect_match(
+      error_message,
+      "- staff_gender",
+      fixed = TRUE
+    )
+  }
+)

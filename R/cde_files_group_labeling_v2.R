@@ -992,6 +992,67 @@ cde_files_group_labeling_v2 <- function(
   # Validate data and column arguments
   # ---------------------------------------
   
+  supported_variable_types <- c(
+    "reporting_category",
+    "grade",
+    "grade_span",
+    "staff_gender"
+  )
+  
+  if (missing(variable_types)) {
+    stop(
+      paste0(
+        "`variable_types` is required.\n\n",
+        "Choose one classification type for each entry ",
+        "in `var_names`.\n\n",
+        "Supported values:\n",
+        paste0(
+          "  - ",
+          supported_variable_types,
+          collapse = "\n"
+        )
+      ),
+      call. = FALSE
+    )
+  }
+  
+  if (
+    !is.character(variable_types) ||
+    length(variable_types) == 0L ||
+    anyNA(variable_types)
+  ) {
+    stop(
+      "`variable_types` must be a nonempty character vector.",
+      call. = FALSE
+    )
+  }
+  
+  unsupported_variable_types <- setdiff(
+    variable_types,
+    supported_variable_types
+  )
+  
+  if (length(unsupported_variable_types) > 0L) {
+    stop(
+      paste0(
+        "Unsupported `variable_types` value(s):\n",
+        paste0(
+          "  - ",
+          unsupported_variable_types,
+          collapse = "\n"
+        ),
+        "\n\n",
+        "Supported values:\n",
+        paste0(
+          "  - ",
+          supported_variable_types,
+          collapse = "\n"
+        )
+      ),
+      call. = FALSE
+    )
+  }
+  
   if (!is.data.frame(df)) {
     stop(
       "`df` must be a data frame.",
