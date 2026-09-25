@@ -31,18 +31,6 @@ assessment_classification_map <- function(assessment_type,
       call. = FALSE)
   }
   
-  supported_years <- c(19L, 22L, 23L, 24L, 25L)
-  
-  if (!data_year %in% supported_years) {
-    stop(
-      "No SBAC classification map is available for data year ",
-      data_year,
-      ". Supported years: ",
-      paste(supported_years, collapse = ", "),
-      ".",
-      call. = FALSE)
-  }
-  
   make_rows <- function(source_value,
                         label,
                         num,
