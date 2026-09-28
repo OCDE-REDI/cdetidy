@@ -2,6 +2,7 @@
 
 export(archive_schema_log)
 export(assessment_files_group_labeling)
+export(cde_classification_lookup)
 export(cde_files_group_labeling)
 export(check_suppression_dependency)
 export(class_map_to_dim)

@@ -7,7 +7,7 @@ testthat::test_that(
   "source values are standardized consistently",
   {
     standardized_values <-
-      standardize_cde_source_value_v2(
+      standardize_cde_source_value(
         c(
           " gx ",
           "gn",
@@ -33,7 +33,7 @@ testthat::test_that(
   "classification map has a unique composite primary key",
   {
     classification_map <-
-      cde_classification_map_v2(
+      cde_classification_map(
         dataset = "graduation",
         file_type = "cohort",
         data_year = 25L
@@ -82,7 +82,7 @@ testthat::test_that(
   "variable type resolves reused grade codes",
   {
     classification_map <-
-      cde_classification_map_v2(
+      cde_classification_map(
         dataset = "graduation",
         file_type = "cohort",
         data_year = 25L
@@ -134,14 +134,14 @@ testthat::test_that(
   "GX follows graduation gender schema drift",
   {
     map_2019 <-
-      cde_classification_map_v2(
+      cde_classification_map(
         dataset = "graduation",
         file_type = "cohort",
         data_year = 19L
       )
     
     map_2025 <-
-      cde_classification_map_v2(
+      cde_classification_map(
         dataset = "graduation",
         file_type = "cohort",
         data_year = 25L
@@ -202,14 +202,14 @@ testthat::test_that(
   "dropout files use the same documented GX drift",
   {
     map_2019 <-
-      cde_classification_map_v2(
+      cde_classification_map(
         dataset = "graduation",
         file_type = "dropout",
         data_year = 19L
       )
     
     map_2025 <-
-      cde_classification_map_v2(
+      cde_classification_map(
         dataset = "graduation",
         file_type = "dropout",
         data_year = 25L
@@ -246,7 +246,7 @@ testthat::test_that(
   "map validation rejects duplicate composite keys",
   {
     classification_map <-
-      cde_classification_map_v2(
+      cde_classification_map(
         dataset = "graduation",
         file_type = "cohort",
         data_year = 25L
@@ -262,7 +262,7 @@ testthat::test_that(
     )
     
     testthat::expect_error(
-      validate_cde_classification_map_v2(
+      validate_cde_classification_map(
         invalid_map
       ),
       regexp = "duplicate composite primary key"
@@ -274,7 +274,7 @@ testthat::test_that(
   "restraint and seclusion gender codes are context specific",
   {
     classification_map <-
-      cde_classification_map_v2(
+      cde_classification_map(
         dataset = "restraint_seclusion",
         file_type = "overall",
         data_year = 20L
@@ -337,7 +337,7 @@ testthat::test_that(
   "ALL differs between grade span and staff gender",
   {
     classification_map <-
-      cde_classification_map_v2(
+      cde_classification_map(
         dataset = "certificated_staff",
         file_type = "race_ethnicity",
         data_year = 20L
@@ -408,7 +408,7 @@ testthat::test_that(
     original_data <- source_data
     
     labeled_data <-
-      cde_files_group_labeling_v2(
+      cde_files_group_labeling(
         df = source_data,
         var_names = "reporting_category",
         output_names = "demo_group",
@@ -468,7 +468,7 @@ testthat::test_that(
     )
     
     labeled_data <-
-      cde_files_group_labeling_v2(
+      cde_files_group_labeling(
         df = source_data,
         var_names = c(
           "school_grade_span",
@@ -521,7 +521,7 @@ testthat::test_that(
     )
     
     testthat::expect_error(
-      cde_files_group_labeling_v2(
+      cde_files_group_labeling(
         df = source_data,
         var_names = "reporting_category",
         output_names = "demo_group",
@@ -535,7 +535,7 @@ testthat::test_that(
     )
     
     testthat::expect_warning(
-      cde_files_group_labeling_v2(
+      cde_files_group_labeling(
         df = source_data,
         var_names = "reporting_category",
         output_names = "demo_group",
@@ -560,7 +560,7 @@ testthat::test_that(
     )
     
     result <-
-      cde_files_group_labeling_v2(
+      cde_files_group_labeling(
         df = source_data,
         var_names = "reporting_category",
         output_names = "demo_group",
@@ -609,7 +609,7 @@ testthat::test_that(
   "canonical classification IDs identify one label",
   {
     classification_map <-
-      cde_classification_map_v2(
+      cde_classification_map(
         dataset = "certificated_staff",
         file_type = "race_ethnicity",
         data_year = 20L
@@ -664,7 +664,7 @@ testthat::test_that(
   "comprehensive lookup contains unique canonical classifications",
   {
     classification_lookup <-
-      cde_classification_lookup_v2()
+      cde_classification_lookup()
     
     testthat::expect_s3_class(
       classification_lookup,
@@ -747,7 +747,7 @@ testthat::test_that(
     
     readable_fact <- example_fact |>
       dplyr::left_join(
-        cde_classification_lookup_v2(),
+        cde_classification_lookup(),
         by = c(
           "group_num",
           "num"
@@ -787,7 +787,7 @@ test_that(
       stringsAsFactors = FALSE
     )
     
-    result <- cde_files_group_labeling_v2(
+    result <- cde_files_group_labeling(
       df = test_data,
       var_names = c(
         "school_grade_span",
@@ -846,7 +846,7 @@ test_that(
   "missing variable_types reports supported options",
   {
     expect_error(
-      cde_files_group_labeling_v2(
+      cde_files_group_labeling(
         df = data.frame(
           reporting_category = "GF"
         ),
@@ -869,7 +869,7 @@ test_that(
   "unsupported variable_types reports supported options",
   {
     captured_error <- expect_error(
-      cde_files_group_labeling_v2(
+      cde_files_group_labeling(
         df = data.frame(
           reporting_category = "GF"
         ),
