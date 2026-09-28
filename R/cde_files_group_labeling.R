@@ -733,140 +733,53 @@ cde_context_classification_rows <- function(
   # Absenteeism reporting categories
   # ---------------------------------------
   #
-  # Absenteeism files store grade-band codes in the mixed
-  # reporting_category column. GX represents non-binary
-  # gender beginning in 2019-20.
+  # Chronic absenteeism and absenteeism-by-reason files store grade
+  # spans in ReportingCategory. CDE's documented transition years do
+  # not consistently match the codes present in downloadable files,
+  # so all observed, noncolliding grade codes are supported.
 
   if (
     dataset == "absenteeism" &&
-    file_type %in% c(
+    file_type %in%
+    c(
       "chronic",
-      "reason"
-    )
+      "reason")
   ) {
+
     context_map <- dplyr::bind_rows(
       context_map,
       tibble::tribble(
-        ~variable_type,
-        ~source_value,
-        ~label,
-        ~num,
-        ~group_num,
-        ~group,
-        ~source_note,
-
-        "reporting_category",
-        "GRKN",
-        "Kindergarten",
-        10L,
-        2L,
-        "Grade",
-        paste(
-          "Absenteeism files store grade bands in",
-          "the reporting category column through 2022-23."
-        ),
-
-        "reporting_category",
-        "GR13",
-        "Grades 1-3",
-        11L,
-        2L,
-        "Grade",
-        paste(
-          "Absenteeism files store grade bands in",
-          "the reporting category column."
-        ),
-
-        "reporting_category",
-        "GR46",
-        "Grades 4-6",
-        12L,
-        2L,
-        "Grade",
-        paste(
-          "Absenteeism files store grade bands in",
-          "the reporting category column."
-        ),
-
-        "reporting_category",
-        "GR78",
-        "Grades 7-8",
-        13L,
-        2L,
-        "Grade",
-        paste(
-          "Absenteeism files store grade bands in",
-          "the reporting category column."
-        ),
-
-        "reporting_category",
-        "GRK8",
-        "Grades K-8",
-        14L,
-        2L,
-        "Grade",
-        paste(
-          "Absenteeism files store grade bands in",
-          "the reporting category column through 2022-23."
-        ),
-
-        "reporting_category",
-        "GR912",
-        "Grades 9-12",
-        15L,
-        2L,
-        "Grade",
-        paste(
-          "Absenteeism files store grade bands in",
-          "the reporting category column."
-        ),
-
-        "reporting_category",
-        "GRTKKN",
-        "Grades TK-K",
-        16L,
-        2L,
-        "Grade",
-        paste(
-          "Absenteeism files store grade bands in",
-          "the reporting category column beginning in 2023-24."
-        ),
-
-        "reporting_category",
-        "GRTK8",
-        "Grades TK-8",
-        17L,
-        2L,
-        "Grade",
-        paste(
-          "Absenteeism files store grade bands in",
-          "the reporting category column beginning in 2023-24."
-        )
+        ~variable_type,       ~source_value, ~label,         ~num, ~group_num, ~group, ~source_note,
+        "reporting_category", "GRK",         "Kindergarten", 10L,  2L,         "Grade",
+        "Observed CDE absenteeism reporting-category code.",
+        "reporting_category", "GRKN",        "Kindergarten", 10L,  2L,         "Grade",
+        "Observed CDE absenteeism reporting-category code.",
+        "reporting_category", "GR13",        "Grades 1-3",   11L,  2L,         "Grade",
+        "Observed CDE absenteeism reporting-category code.",
+        "reporting_category", "GR46",        "Grades 4-6",   12L,  2L,         "Grade",
+        "Observed CDE absenteeism reporting-category code.",
+        "reporting_category", "GR78",        "Grades 7-8",   13L,  2L,         "Grade",
+        "Observed CDE absenteeism reporting-category code.",
+        "reporting_category", "GRK8",        "Grades K-8",   14L,  2L,         "Grade",
+        "Observed CDE absenteeism reporting-category code.",
+        "reporting_category", "GR912",       "Grades 9-12",  15L,  2L,         "Grade",
+        "Observed CDE absenteeism reporting-category code.",
+        "reporting_category", "GRTKKN",      "Grades TK-K",  16L,  2L,         "Grade",
+        "Observed CDE absenteeism reporting-category code.",
+        "reporting_category", "GRTK8",       "Grades TK-8",  17L,  2L,         "Grade",
+        "Observed CDE absenteeism reporting-category code."
       )
     )
 
+    # GX has a genuine historical meaning change, so this one
+    # remains year-specific.
     if (data_year >= 20L) {
       context_map <- dplyr::bind_rows(
         context_map,
         tibble::tribble(
-          ~variable_type,
-          ~source_value,
-          ~label,
-          ~num,
-          ~group_num,
-          ~group,
-          ~source_note,
-
-          "reporting_category",
-          "GX",
-          "Non-Binary",
-          35L,
-          4L,
-          "Gender",
-          paste(
-            "Absenteeism files use GX for non-binary",
-            "gender beginning in 2019-20."
-          )
+          ~variable_type,       ~source_value, ~label,       ~num, ~group_num, ~group,  ~source_note,
+          "reporting_category", "GX",          "Non-Binary", 35L,  4L,         "Gender",
+          "CDE absenteeism files use GX for non-binary gender beginning in 2019-20."
         )
       )
     }
