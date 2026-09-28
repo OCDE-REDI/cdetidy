@@ -26,8 +26,9 @@ assessment_files_group_labeling(
 \item{variable_types}{Character vector identifying each source column as
 `"student_group"` or `"grade"`.}
 
-\item{assessment_type}{Assessment family. The initial implementation
-supports `"SBAC"`.}
+\item{assessment_type}{Assessment family, such as `"SBAC"`, `"CAST"`, or
+`"ELPAC"`. The value supplies context for codes whose meanings differ
+across assessment families.}
 
 \item{data_year}{Two-digit ending year, such as `25`.}
 

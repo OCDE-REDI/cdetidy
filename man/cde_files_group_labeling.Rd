@@ -2,29 +2,54 @@
 % Please edit documentation in R/cde_files_group_labeling.R
 \name{cde_files_group_labeling}
 \alias{cde_files_group_labeling}
-\title{Apply classification mapping to CDE-style file columns}
+\title{Label CDE-file classifications using contextual mappings}
 \usage{
-cde_files_group_labeling(df, var_names, output_names)
+cde_files_group_labeling(
+  df,
+  var_names,
+  output_names,
+  variable_types,
+  dataset,
+  file_type,
+  data_year,
+  validate = FALSE,
+  fail_on_unmapped = TRUE,
+  return_map = FALSE
+)
 }
 \arguments{
-\item{df}{A data frame containing one or more columns to classify.}
+\item{df}{A data frame containing CDE classification columns.}
 
-\item{var_names}{A character vector of column names in `df` to which the classification should be applied.}
+\item{var_names}{Character vector containing source-column names.}
 
-\item{output_names}{A character vector of prefixes for the new output columns. Must be the same length as `var_names`.}
+\item{output_names}{Character vector containing output-column prefixes.}
+
+\item{variable_types}{Character vector identifying the semantic type of
+each source column. Supported values are `"reporting_category"`,
+`"grade"`, `"grade_span"`, and `"staff_gender"`.}
+
+\item{dataset}{Character value identifying the CDE dataset family.}
+
+\item{file_type}{Character value identifying the file type within the
+dataset family.}
+
+\item{data_year}{Two-digit ending year, such as `25`.}
+
+\item{validate}{If `TRUE`, print the observed mappings and row counts.}
+
+\item{fail_on_unmapped}{If `TRUE`, stop when a nonmissing source value
+cannot be mapped. If `FALSE`, issue a warning.}
+
+\item{return_map}{If `TRUE`, return a named list containing the labeled
+data in `data` and the applicable classification map in `map`.}
 }
 \value{
-The original data frame with new columns added for each input variable:
-`<prefix>_label`, `<prefix>_num`, `<prefix>_group_num`, and `<prefix>_group`.
+If `return_map = FALSE`, the original data frame with four new
+  columns per source variable: `<prefix>_label`, `<prefix>_num`,
+  `<prefix>_group_num`, and `<prefix>_group`. If `return_map = TRUE`,
+  a named list containing the labeled data and applicable map.
 }
 \description{
-Applies a hardcoded classification map to one or more columns in a CDE dataset. For each input
-column, the function generates new output columns using user-defined prefixes:
-`<prefix>_label`, `<prefix>_num`, `<prefix>_group_num`, and `<prefix>_group`.
-Interactive prompts are used to resolve classification values that appear in multiple entries.
-}
-\details{
-- Classification values (e.g., `"RB"`, `"RE_B"`, `"GR46"`) are matched to a hardcoded classification map.
-- The function interactively prompts the user to resolve duplicates when a value appears in more than one group.
-- An error is raised if any input values are unmatched.
+Applies dataset-, file-, year-, and variable-specific classification maps
+to one or more columns in a CDE data file.
 }

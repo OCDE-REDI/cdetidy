@@ -1,222 +1,1402 @@
-#' Apply classification mapping to CDE-style file columns
-#'
-#' Applies a hardcoded classification map to one or more columns in a CDE dataset. For each input
-#' column, the function generates new output columns using user-defined prefixes:
-#' `<prefix>_label`, `<prefix>_num`, `<prefix>_group_num`, and `<prefix>_group`.
-#' Interactive prompts are used to resolve classification values that appear in multiple entries.
-#'
-#' @param df A data frame containing one or more columns to classify.
-#' @param var_names A character vector of column names in `df` to which the classification should be applied.
-#' @param output_names A character vector of prefixes for the new output columns. Must be the same length as `var_names`.
-#'
-#' @return The original data frame with new columns added for each input variable:
-#' `<prefix>_label`, `<prefix>_num`, `<prefix>_group_num`, and `<prefix>_group`.
-#'
-#' @details
-#' - Classification values (e.g., `"RB"`, `"RE_B"`, `"GR46"`) are matched to a hardcoded classification map.
-#' - The function interactively prompts the user to resolve duplicates when a value appears in more than one group.
-#' - An error is raised if any input values are unmatched.
-#'
-#' @export
+# =============================================================================
+# CDE file group labeling helpers
+# =============================================================================
 
-cde_files_group_labeling <- function(df, var_names, output_names) {
-  if (length(var_names) != length(output_names)) {
-    stop("You must have the same number of variables as outputs")
-  }
 
-  missing_cols <- setdiff(var_names, names(df))
-  if (length(missing_cols) > 0) {
-    stop(paste("Missing columns in dataframe:", paste(missing_cols, collapse = ", ")))
-  }
+# -----------------------------------------------------------------------------
+# Standardize source values
+# -----------------------------------------------------------------------------
 
-  # ---- Internal helper: Only prompt if duplicates are also in the data ----
-  resolve_duplicates_interactively <- function(classification_map, df, var_names) {
-    all_values <- unlist(lapply(classification_map, function(x) x$values))
-    dupes <- unique(all_values[duplicated(all_values)])
+standardize_cde_source_value <- function(value) {
 
-    # Get all values in the data across the relevant columns
-    data_values <- unique(unlist(as.data.frame(df)[, var_names]))
-
-    # Only keep duplicated values that also appear in the data
-    relevant_dupes <- intersect(dupes, data_values)
-    if (length(relevant_dupes) == 0) return(classification_map)
-
-    message("Duplicate classification values found in your data. Please choose which label to apply:")
-
-    resolved_map <- list()
-
-    for (dup in relevant_dupes) {
-      matching_entries <- Filter(function(x) dup %in% x$values, classification_map)
-
-      cat("\nValue:", dup, "\n")
-      for (i in seq_along(matching_entries)) {
-        cat(i, "-> label:", matching_entries[[i]]$label,
-            "| num:", matching_entries[[i]]$num,
-            "| group_num:", matching_entries[[i]]$group_num,
-            "| group:", matching_entries[[i]]$group, "\n")
-      }
-
-      choice <- as.integer(readline(prompt = "Select the number of the preferred option: "))
-      selected <- matching_entries[[choice]]
-      selected$values <- dup  # Keep only selected value
-
-      # Remove the value from all other entries in the full map
-      classification_map <- lapply(classification_map, function(x) {
-        x$values <- setdiff(x$values, dup)
-        x
-      })
-
-      # Add selected entry back
-      resolved_map <- append(resolved_map, list(selected))
-    }
-
-    # Keep all other non-duplicate or unresolved entries
-    unique_map <- Filter(function(x) all(!x$values %in% relevant_dupes), classification_map)
-    final_map <- append(unique_map, resolved_map)
-
-    return(final_map)
-  }
-
-  # Sample hardcoded classification map
-  classification_map <- list(
-    list(values = c("RB", "RE_B"), label = "African American", num = 1, group_num = 1, group = "Race"),
-    list(values = c("RI", "RE_I"), label = "American Indian or Alaska Native", num = 2, group_num = 1, group = "Race"),
-    list(values = c("RA", "RE_A"), label = "Asian", num = 3, group_num = 1, group = "Race"),
-    list(values = c("RF", "RE_F"), label = "Filipino", num = 4, group_num = 1, group = "Race"),
-    list(values = c("RH", "RE_H"), label = "Hispanic or Latino", num = 5, group_num = 1, group = "Race"),
-    list(values = c("RP", "RE_P"), label = "Pacific Islander", num = 6, group_num = 1, group = "Race"),
-    list(values = c("RT", "RE_T"), label = "Two or More Races", num = 7, group_num = 1, group = "Race"),
-    list(values = c("RW", "RE_W"), label = "White", num = 8, group_num = 1, group = "Race"),
-    list(values = c("RD", "RE_D"), label = "Race Not Reported", num = 9, group_num = 1, group = "Race"),
-    list(values = c("GRKN", "GRK", "KN"), label = "Kindergarten", num = 10, group_num = 2, group = "Grade"),
-    list(values = c("GR13"), label = "Grades 1-3", num = 11, group_num = 2, group = "Grade"),
-    list(values = c("GS_46", "GR46"), label = "Grades 4-6", num = 12, group_num = 2, group = "Grade"),
-    list(values = c("GR78", "GS_78"), label = "Grades 7-8", num = 13, group_num = 2, group = "Grade"),
-    list(values = c("GRK8"), label = "Grades K-8", num = 14, group_num = 2, group = "Grade"),
-    list(values = c("GS_912", "GR912"), label = "Grades 9-12", num = 15, group_num = 2, group = "Grade"),
-    list(values = c("GRTKKN"), label = "Grades TK-K", num = 16, group_num = 2, group = "Grade"),
-    list(values = c("GRTK8"), label = "Grades TK-8", num = 17, group_num = 2, group = "Grade"),
-    list(values = c("GRTK", "TK"), label = "Grade TK", num = 18, group_num = 2, group = "Grade"),
-    list(values = c("GR04", "04"), label = "Grade 4", num = 19, group_num = 2, group = "Grade"),
-    list(values = c("GR08", "08"), label = "Grade 8", num = 20, group_num = 2, group = "Grade"),
-    list(values = c("GR09", "09"), label = "Grade 9", num = 21, group_num = 2, group = "Grade"),
-    list(values = c("GR10", "10"), label = "Grade 10", num = 22, group_num = 2, group = "Grade"),
-    list(values = c("GR11", "11"), label = "Grade 11", num = 23, group_num = 2, group = "Grade"),
-    list(values = c("GR12", "12"), label = "Grade 12", num = 24, group_num = 2, group = "Grade"),
-    list(values = c("GS_PS3"), label = "Grades PreK-3", num = 25, group_num = 2, group = "Grade"),
-    list(values = c("AR_03"), label = "Children K-12 who are 0-3", num = 26, group_num = 3, group = "Age Range"),
-    list(values = c("AR_0418"), label = "Children K-12 who are 4-18", num = 27, group_num = 3, group = "Age Range"),
-    list(values = c("AR_1922"), label = "Continuing Students K-12 who are 19-22", num = 28, group_num = 3, group = "Age Range"),
-    list(values = c("AR_2329"), label = "Adults K-12 who are 23-29", num = 29, group_num = 3, group = "Age Range"),
-    list(values = c("AR_3039"), label = "Adults K-12 who are 30-39", num = 30, group_num = 3, group = "Age Range"),
-    list(values = c("AR_4049"), label = "Adults K-12 who are 40-49", num = 31, group_num = 3, group = "Age Range"),
-    list(values = c("AR_50P"), label = "Adults K-12 who are 50 plus", num = 32, group_num = 3, group = "Age Range"),
-    list(values = c("GN_F", "GF", "F"), label = "Female", num = 33, group_num = 4, group = "Gender"),
-    list(values = c("GN_M", "GM", "M"), label = "Male", num = 34, group_num = 4, group = "Gender"),
-    list(values = c("GN_X", "GX", "GN", "X"), label = "Non-Binary", num = 35, group_num = 4, group = "Gender"),
-    list(values = c("GN_Z", "GX", "GZ", "Z"), label = "Gender Missing", num = 36, group_num = 4, group = "Gender"),
-    list(values = c("SG_EL", "SE", "ELAS_EL"), label = "English Learner", num = 37, group_num = 5, group = "Student Subgroup"),
-    list(values = c("SG_DS", "SD"), label = "Students with Disabilities", num = 38, group_num = 5, group = "Student Subgroup"),
-    list(values = c("SG_SD", "SS"), label = "Socioeconomically Disadvantaged", num = 39, group_num = 5, group = "Student Subgroup"),
-    list(values = c("SG_MG", "SM"), label = "Migrant Youth", num = 40, group_num = 5, group = "Student Subgroup"),
-    list(values = c("SG_FS", "SF"), label = "Foster Youth", num = 41, group_num = 5, group = "Student Subgroup"),
-    list(values = c("SG_HM", "SH"), label = "Homeless Youth", num = 42, group_num = 5, group = "Student Subgroup"),
-    list(values = c("S5"), label = "Student with a 504 Accommodation Plan", num = 43, group_num = 5, group = "Student Subgroup"),
-    list(values = c("HUYN"), label = "Not Homeless Unaccompanied Youth", num = 44, group_num = 5, group = "Student Subgroup"),
-    list(values = c("HUYY"), label = "Homeless Unaccompanied Youth", num = 45, group_num = 5, group = "Student Subgroup"),
-    list(values = c("EL_Y"), label = "Is an English Learner", num = 46, group_num = 8, group = "English Language Acquisition Status"),
-    list(values = c("EL_N"), label = "Is Not an English Learner", num = 47, group_num = 8, group = "English Language Acquisition Status"),
-    list(values = c("CAY"), label = "Is Chronically Absent", num = 48, group_num = 5, group = "Student Subgroup"),
-    list(values = c("CAN"), label = "Is Not Chronically Absent", num = 49, group_num = 5, group = "Student Subgroup"),
-    list(values = c("TA"), label = "Total Number of Students", num = 50, group_num = 6, group = "Total Number of Students"),
-    list(values = c("ELAS_ADEL"), label = "Adult English Learner", num = 51, group_num = 8, group = "English Language Acquisition Status"),
-    list(values = c("ELAS_EO"), label = "English Only", num = 52, group_num = 8, group = "English Language Acquisition Status"),
-    list(values = c("ELAS_IFEP"), label = "Initial Fluent English Proficient", num = 53, group_num = 8, group = "English Language Acquisition Status"),
-    list(values = c("ELAS_MISS"), label = "EL Status Missing", num = 54, group_num = 8, group = "English Language Acquisition Status"),
-    list(values = c("ELAS_RFEP"), label = "Reclassified Fluent English Proficient", num = 55, group_num = 8, group = "English Language Acquisition Status"),
-    list(values = c("ELAS_TBD"), label = "English Status TBD", num = 56, group_num = 8, group = "English Language Acquisition Status"),
-    list(values = c("DC_AUT"), label = "Autism", num = 57, group_num = 7, group = "Disability Category"),
-    list(values = c("DC_DB"), label = "Deaf Blindedness", num = 58, group_num = 7, group = "Disability Category"),
-    list(values = c("DC_DFHI"), label = "Deaf/Hearing Impairment", num = 59, group_num = 7, group = "Disability Category"),
-    list(values = c("DC_ED"), label = "Emotional Disturbance", num = 60, group_num = 7, group = "Disability Category"),
-    list(values = c("DC_EMD"), label = "Established Medical Disability", num = 61, group_num = 7, group = "Disability Category"),
-    list(values = c("DC_HH"), label = "Hard of Hearing", num = 62, group_num = 7, group = "Disability Category"),
-    list(values = c("DC_ID"), label = "Intellectual Disability", num = 63, group_num = 7, group = "Disability Category"),
-    list(values = c("DC_MD"), label = "Multiple Disabilities", num = 64, group_num = 7, group = "Disability Category"),
-    list(values = c("DC_OHI"), label = "Other Health Impairment", num = 65, group_num = 7, group = "Disability Category"),
-    list(values = c("DC_OI"), label = "Orthopedic Health Impairment", num = 66, group_num = 7, group = "Disability Category"),
-    list(values = c("DC_SLD"), label = "Specific Learning Disability", num = 67, group_num = 7, group = "Disability Category"),
-    list(values = c("DC_SLI"), label = "Speech or Language Impairment", num = 68, group_num = 7, group = "Disability Category"),
-    list(values = c("DC_TBI"), label = "Traumatic Brain Injury", num = 69, group_num = 7, group = "Disability Category"),
-    list(values = c("DC_VI"), label = "Visual Impairment", num = 70, group_num = 7, group = "Disability Category"),
-    list(values = c("AR_35"), label = "Ages 3-5", num = 71, group_num = 3, group = "Age Range"),
-    list(values = c("AR_612"), label = "Ages 6-12", num = 72, group_num = 3, group = "Age Range"),
-    list(values = c("AR_1318"), label = "Ages 13-18", num = 73, group_num = 3, group = "Age Range"),
-    list(values = c("AR_19P"), label = "Ages 19 plus", num = 74, group_num = 3, group = "Age Range"),
-    list(values = c("ALL"), label = "All data for all schools", num = 75, group_num = 9, group = "Grade Span"),
-    list(values = c("GS_K6", "GRK6"), label = "School grade span K-6", num = 76, group_num = 9, group = "Grade Span"),
-    list(values = c("GS_69", "GR69"), label = "School grade span 6-9", num = 77, group_num = 9, group = "Grade Span"),
-    list(values = c("GS_912", "GR912"), label = "School grade span 9-12", num = 78, group_num = 9, group = "Grade Span"),
-    list(values = c("GS_K12", "GRK12"), label = "School grade span K-12", num = 79, group_num = 9, group = "Grade Span"),
-    list(values = c("GR01", "01"), label = "Grade 1", num = 80, group_num = 2, group = "Grade"),
-    list(values = c("GR02", "02"), label = "Grade 2", num = 81, group_num = 2, group = "Grade"),
-    list(values = c("GR03", "03"), label = "Grade 3", num = 82, group_num = 2, group = "Grade"),
-    list(values = c("GR05", "05"), label = "Grade 5", num = 83, group_num = 2, group = "Grade"),
-    list(values = c("GR06", "06"), label = "Grade 6", num = 84, group_num = 2, group = "Grade"),
-    list(values = c("GR07", "07"), label = "Grade 7", num = 85, group_num = 2, group = "Grade"),
-    list(values = c("gr_ungrade", "ungraded"), label = "Ungraded", num = 86, group_num = 2, group = "Grade")
+  standardized_value <- as.character(
+    value
   )
 
-  # ---- Resolve only relevant duplicates ----
-  classification_map <- resolve_duplicates_interactively(classification_map, df, var_names)
+  standardized_value <- trimws(
+    standardized_value
+  )
 
-  # ---- Apply classification across each column ----
-  for (i in seq_along(var_names)) {
-    var <- var_names[i]
-    prefix <- output_names[i]
+  standardized_value[
+    standardized_value == ""
+  ] <- NA_character_
 
-    label_col <- paste0(prefix, "_label")
-    num_col  <- paste0(prefix, "_num")
-    group_num_col <- paste0(prefix, "_group_num")
-    group_col <- paste0(prefix, "_group")
+  standardized_value <- toupper(
+    standardized_value
+  )
 
-    df[[label_col]] <- NA_character_
-    df[[num_col]]  <- NA_real_
-    df[[group_num_col]] <- NA_real_
-    df[[group_col]] <- NA_character_
+  standardized_value
+}
 
-    current_values <- df[[var]]
 
-    for (entry in classification_map) {
-      matched <- ifelse(current_values %in% entry$values, TRUE, FALSE)
+# -----------------------------------------------------------------------------
+# Validate a CDE classification map
+# -----------------------------------------------------------------------------
 
-      if (any(matched, na.rm = TRUE)) {
-        df[[label_col]] <- ifelse(is.na(df[[label_col]]) & matched, entry$label, df[[label_col]])
-        df[[num_col]]  <- ifelse(is.na(df[[num_col]])  & matched, entry$num,  df[[num_col]])
-        df[[group_num_col]] <- ifelse(is.na(df[[group_num_col]]) & matched, entry$group_num, df[[group_num_col]])
-        df[[group_col]] <- ifelse(is.na(df[[group_col]]) & matched, entry$group, df[[group_col]])
-      }
-    }
+validate_cde_classification_map <- function(
+    classification_map) {
+
+  if (!is.data.frame(classification_map)) {
+    stop(
+      "`classification_map` must be a data frame.",
+      call. = FALSE
+    )
   }
 
-  # ---- Final validation: Stop if unmapped values are found ----
-  for (i in seq_along(var_names)) {
-    var <- var_names[i]
-    prefix <- output_names[i]
-    label_col <- paste0(prefix, "_label")
+  if (nrow(classification_map) == 0L) {
+    stop(
+      "`classification_map` contains no rows.",
+      call. = FALSE
+    )
+  }
 
-    # Only consider rows where input is not NA but label is NA
-    unmatched_vals <- unique(df[[var]][is.na(df[[label_col]]) & !is.na(df[[var]])])
+  required_columns <- c(
+    "dataset",
+    "file_type",
+    "data_year",
+    "variable_type",
+    "source_value",
+    "label",
+    "num",
+    "group_num",
+    "group",
+    "source_note"
+  )
 
-    if (length(unmatched_vals) > 0) {
-      stop(
-        "❌ The following ", length(unmatched_vals), " value(s) in column '", var,
-        "' could not be mapped:\n→ ",
-        paste(unmatched_vals, collapse = ", "),
-        "\nPlease update the classification map to include these values."
+  missing_columns <- setdiff(
+    required_columns,
+    names(classification_map)
+  )
+
+  if (length(missing_columns) > 0L) {
+    stop(
+      "The classification map is missing required column(s): ",
+      paste(
+        missing_columns,
+        collapse = ", "
+      ),
+      ".",
+      call. = FALSE
+    )
+  }
+
+  character_columns <- c(
+    "dataset",
+    "file_type",
+    "variable_type",
+    "source_value",
+    "label",
+    "group",
+    "source_note"
+  )
+
+  invalid_character_columns <- character_columns[
+    !vapply(
+      classification_map[
+        character_columns
+      ],
+      is.character,
+      logical(1)
+    )
+  ]
+
+  if (length(invalid_character_columns) > 0L) {
+    stop(
+      "The following classification-map column(s) must be ",
+      "character: ",
+      paste(
+        invalid_character_columns,
+        collapse = ", "
+      ),
+      ".",
+      call. = FALSE
+    )
+  }
+
+  integer_columns <- c(
+    "data_year",
+    "num",
+    "group_num")
+
+  invalid_integer_columns <- integer_columns[
+    !vapply(
+      classification_map[integer_columns],
+      is.integer,
+      logical(1))
+  ]
+
+  if (length(invalid_integer_columns) > 0L) {
+    stop(
+      "The following classification-map column(s) must be ",
+      "integer: ",
+      paste(
+        invalid_integer_columns,
+        collapse = ", "
+      ),
+      ".",
+      call. = FALSE
+    )
+  }
+
+  primary_key_columns <- c(
+    "dataset",
+    "file_type",
+    "data_year",
+    "variable_type",
+    "source_value"
+  )
+
+  missing_primary_key <- Reduce(
+    `|`,
+    lapply(
+      classification_map[
+        primary_key_columns
+      ],
+      function(value) {
+        is.na(value) |
+          (
+            is.character(value) &
+              trimws(value) == ""
+          )
+      }
+    )
+  )
+
+  if (any(missing_primary_key)) {
+    stop(
+      "The classification map contains ",
+      sum(missing_primary_key),
+      " row(s) with an incomplete composite primary key.",
+      call. = FALSE
+    )
+  }
+
+  duplicated_primary_key <- duplicated(
+    classification_map[
+      primary_key_columns
+    ]
+  ) |
+    duplicated(
+      classification_map[
+        primary_key_columns
+      ],
+      fromLast = TRUE
+    )
+
+  if (any(duplicated_primary_key)) {
+    duplicate_keys <- unique(
+      classification_map[
+        duplicated_primary_key,
+        primary_key_columns,
+        drop = FALSE
+      ]
+    )
+
+    duplicate_key_text <- apply(
+      duplicate_keys,
+      1L,
+      function(value) {
+        paste(
+          value,
+          collapse = " | "
+        )
+      }
+    )
+
+    stop(
+      "The classification map contains duplicate composite ",
+      "primary key(s): ",
+      paste(
+        duplicate_key_text,
+        collapse = "; "
+      ),
+      ".",
+      call. = FALSE
+    )
+  }
+
+  # ---------------------------------------
+  # Validate canonical classification IDs
+  # ---------------------------------------
+
+  canonical_classifications <- unique(
+    classification_map[
+      c(
+        "group_num",
+        "num",
+        "label",
+        "group"
+      )
+    ]
+  )
+
+  canonical_key_columns <- c(
+    "group_num",
+    "num"
+  )
+
+  inconsistent_canonical_key <- duplicated(
+    canonical_classifications[
+      canonical_key_columns
+    ]
+  ) |
+    duplicated(
+      canonical_classifications[
+        canonical_key_columns
+      ],
+      fromLast = TRUE
+    )
+
+  if (any(inconsistent_canonical_key)) {
+    inconsistent_rows <- canonical_classifications[
+      inconsistent_canonical_key,
+      ,
+      drop = FALSE
+    ]
+
+    inconsistent_key_text <- paste(
+      utils::capture.output(
+        print(
+          inconsistent_rows,
+          row.names = FALSE
+        )
+      ),
+      collapse = "\n"
+    )
+
+    stop(
+      "The classification map assigns the same canonical ",
+      "`group_num` and `num` combination to multiple labels:\n",
+      inconsistent_key_text,
+      call. = FALSE
+    )
+  }
+
+  missing_classification <- (
+    is.na(classification_map$label) |
+      trimws(classification_map$label) == "" |
+      is.na(classification_map$num) |
+      is.na(classification_map$group_num) |
+      is.na(classification_map$group) |
+      trimws(classification_map$group) == ""
+  )
+
+  if (any(missing_classification)) {
+    stop(
+      "The classification map contains ",
+      sum(missing_classification),
+      " row(s) with an incomplete classification.",
+      call. = FALSE
+    )
+  }
+
+  standardized_source_values <-
+    standardize_cde_source_value(
+      classification_map$source_value
+    )
+
+  if (!identical(
+    classification_map$source_value,
+    standardized_source_values
+  )) {
+    stop(
+      "`classification_map$source_value` contains values that ",
+      "have not been standardized.",
+      call. = FALSE
+    )
+  }
+
+  invisible(
+    classification_map
+  )
+}
+
+# -----------------------------------------------------------------------------
+# Common CDE classification rows
+# -----------------------------------------------------------------------------
+
+cde_common_classification_rows <- function() {
+
+  # ---------------------------------------
+  # Race and ethnicity
+  # ---------------------------------------
+
+  race_map <- tibble::tribble(
+    ~variable_type, ~source_value, ~label, ~num, ~group_num, ~group,
+    "reporting_category", "RB",   "African American",                    1L, 1L, "Race",
+    "reporting_category", "RE_B", "African American",                    1L, 1L, "Race",
+    "reporting_category", "RI",   "American Indian or Alaska Native",    2L, 1L, "Race",
+    "reporting_category", "RE_I", "American Indian or Alaska Native",    2L, 1L, "Race",
+    "reporting_category", "RA",   "Asian",                               3L, 1L, "Race",
+    "reporting_category", "RE_A", "Asian",                               3L, 1L, "Race",
+    "reporting_category", "RF",   "Filipino",                            4L, 1L, "Race",
+    "reporting_category", "RE_F", "Filipino",                            4L, 1L, "Race",
+    "reporting_category", "RH",   "Hispanic or Latino",                  5L, 1L, "Race",
+    "reporting_category", "RE_H", "Hispanic or Latino",                  5L, 1L, "Race",
+    "reporting_category", "RP",   "Pacific Islander",                    6L, 1L, "Race",
+    "reporting_category", "RE_P", "Pacific Islander",                    6L, 1L, "Race",
+    "reporting_category", "RT",   "Two or More Races",                   7L, 1L, "Race",
+    "reporting_category", "RE_T", "Two or More Races",                   7L, 1L, "Race",
+    "reporting_category", "RW",   "White",                               8L, 1L, "Race",
+    "reporting_category", "RE_W", "White",                               8L, 1L, "Race",
+    "reporting_category", "RD",   "Race Not Reported",                   9L, 1L, "Race",
+    "reporting_category", "RE_D", "Race Not Reported",                   9L, 1L, "Race"
+  )
+
+  # ---------------------------------------
+  # Grade
+  # ---------------------------------------
+
+  grade_map <- tibble::tribble(
+    ~variable_type, ~source_value, ~label, ~num, ~group_num, ~group,
+    "grade", "GRKN",       "Kindergarten",       10L, 2L, "Grade",
+    "grade", "GRK",        "Kindergarten",       10L, 2L, "Grade",
+    "grade", "KN",         "Kindergarten",       10L, 2L, "Grade",
+    "grade", "GR13",       "Grades 1-3",         11L, 2L, "Grade",
+    "grade", "GS_46",      "Grades 4-6",         12L, 2L, "Grade",
+    "grade", "GR46",       "Grades 4-6",         12L, 2L, "Grade",
+    "grade", "GR78",       "Grades 7-8",         13L, 2L, "Grade",
+    "grade", "GS_78",      "Grades 7-8",         13L, 2L, "Grade",
+    "grade", "GRK8",       "Grades K-8",         14L, 2L, "Grade",
+    "grade", "GS_912",     "Grades 9-12",        15L, 2L, "Grade",
+    "grade", "GR912",      "Grades 9-12",        15L, 2L, "Grade",
+    "grade", "GRTKKN",     "Grades TK-K",        16L, 2L, "Grade",
+    "grade", "GRTK8",      "Grades TK-8",        17L, 2L, "Grade",
+    "grade", "GRTK",       "Grade TK",           18L, 2L, "Grade",
+    "grade", "TK",         "Grade TK",           18L, 2L, "Grade",
+    "grade", "GR04",       "Grade 4",            19L, 2L, "Grade",
+    "grade", "04",         "Grade 4",            19L, 2L, "Grade",
+    "grade", "GR08",       "Grade 8",            20L, 2L, "Grade",
+    "grade", "08",         "Grade 8",            20L, 2L, "Grade",
+    "grade", "GR09",       "Grade 9",            21L, 2L, "Grade",
+    "grade", "09",         "Grade 9",            21L, 2L, "Grade",
+    "grade", "GR10",       "Grade 10",           22L, 2L, "Grade",
+    "grade", "10",         "Grade 10",           22L, 2L, "Grade",
+    "grade", "GR11",       "Grade 11",           23L, 2L, "Grade",
+    "grade", "11",         "Grade 11",           23L, 2L, "Grade",
+    "grade", "GR12",       "Grade 12",           24L, 2L, "Grade",
+    "grade", "12",         "Grade 12",           24L, 2L, "Grade",
+    "grade", "GS_PS3",     "Grades PreK-3",      25L, 2L, "Grade",
+    "grade", "GR01",       "Grade 1",            80L, 2L, "Grade",
+    "grade", "01",         "Grade 1",            80L, 2L, "Grade",
+    "grade", "GR02",       "Grade 2",            81L, 2L, "Grade",
+    "grade", "02",         "Grade 2",            81L, 2L, "Grade",
+    "grade", "GR03",       "Grade 3",            82L, 2L, "Grade",
+    "grade", "03",         "Grade 3",            82L, 2L, "Grade",
+    "grade", "GR05",       "Grade 5",            83L, 2L, "Grade",
+    "grade", "05",         "Grade 5",            83L, 2L, "Grade",
+    "grade", "GR06",       "Grade 6",            84L, 2L, "Grade",
+    "grade", "06",         "Grade 6",            84L, 2L, "Grade",
+    "grade", "GR07",       "Grade 7",            85L, 2L, "Grade",
+    "grade", "07",         "Grade 7",            85L, 2L, "Grade",
+    "grade", "GR_UNGRADE", "Ungraded",           86L, 2L, "Grade",
+    "grade", "UNGRADED",   "Ungraded",           86L, 2L, "Grade"
+  )
+
+  # ---------------------------------------
+  # Grade span
+  # ---------------------------------------
+
+  grade_span_map <- tibble::tribble(
+    ~variable_type, ~source_value, ~label, ~num, ~group_num, ~group,
+    "grade_span", "ALL",    "All data for all schools",  75L, 9L, "Grade Span",
+    "grade_span", "GS_K6",  "School grade span K-6",    76L, 9L, "Grade Span",
+    "grade_span", "GRK6",   "School grade span K-6",    76L, 9L, "Grade Span",
+    "grade_span", "GS_69",  "School grade span 6-9",    77L, 9L, "Grade Span",
+    "grade_span", "GR69",   "School grade span 6-9",    77L, 9L, "Grade Span",
+    "grade_span", "GS_912", "School grade span 9-12",   78L, 9L, "Grade Span",
+    "grade_span", "GR912",  "School grade span 9-12",   78L, 9L, "Grade Span",
+    "grade_span", "GS_K12", "School grade span K-12",   79L, 9L, "Grade Span",
+    "grade_span", "GRK12",  "School grade span K-12",   79L, 9L, "Grade Span"
+  )
+
+  # ---------------------------------------
+  # Stable gender codes
+  # ---------------------------------------
+
+  gender_map <- tibble::tribble(
+    ~variable_type, ~source_value, ~label, ~num, ~group_num, ~group,
+    "reporting_category", "GN_F", "Female",          33L, 4L, "Gender",
+    "reporting_category", "GF",   "Female",          33L, 4L, "Gender",
+    "reporting_category", "F",    "Female",          33L, 4L, "Gender",
+    "reporting_category", "GN_M", "Male",            34L, 4L, "Gender",
+    "reporting_category", "GM",   "Male",            34L, 4L, "Gender",
+    "reporting_category", "M",    "Male",            34L, 4L, "Gender",
+    "reporting_category", "GN_X", "Non-Binary",      35L, 4L, "Gender",
+    "reporting_category", "X",    "Non-Binary",      35L, 4L, "Gender",
+    "reporting_category", "GN_Z", "Gender Missing",  36L, 4L, "Gender",
+    "reporting_category", "GZ",   "Gender Missing",  36L, 4L, "Gender",
+    "reporting_category", "Z",    "Gender Missing",  36L, 4L, "Gender"
+  )
+
+  # ---------------------------------------
+  # Stable staff-gender codes
+  # ---------------------------------------
+
+  staff_gender_map <- gender_map |>
+    dplyr::mutate(
+      variable_type = "staff_gender"
+    )
+
+  # ---------------------------------------
+  # Age ranges
+  # ---------------------------------------
+
+  age_range_map <- tibble::tribble(
+    ~variable_type, ~source_value, ~label, ~num, ~group_num, ~group,
+    "reporting_category", "AR_03",   "Children K-12 who are 0-3",              26L, 3L, "Age Range",
+    "reporting_category", "AR_0418", "Children K-12 who are 4-18",             27L, 3L, "Age Range",
+    "reporting_category", "AR_1922", "Continuing Students K-12 who are 19-22", 28L, 3L, "Age Range",
+    "reporting_category", "AR_2329", "Adults K-12 who are 23-29",              29L, 3L, "Age Range",
+    "reporting_category", "AR_3039", "Adults K-12 who are 30-39",              30L, 3L, "Age Range",
+    "reporting_category", "AR_4049", "Adults K-12 who are 40-49",              31L, 3L, "Age Range",
+    "reporting_category", "AR_50P",  "Adults K-12 who are 50 plus",            32L, 3L, "Age Range",
+    "reporting_category", "AR_35",   "Ages 3-5",                               71L, 3L, "Age Range",
+    "reporting_category", "AR_612",  "Ages 6-12",                              72L, 3L, "Age Range",
+    "reporting_category", "AR_1318", "Ages 13-18",                             73L, 3L, "Age Range",
+    "reporting_category", "AR_19P",  "Ages 19 plus",                           74L, 3L, "Age Range"
+  )
+
+  # ---------------------------------------
+  # Student subgroups
+  # ---------------------------------------
+
+  student_subgroup_map <- tibble::tribble(
+    ~variable_type, ~source_value, ~label, ~num, ~group_num, ~group,
+    "reporting_category", "SG_EL", "English Learner",                       37L, 5L, "Student Subgroup",
+    "reporting_category", "SE",    "English Learner",                       37L, 5L, "Student Subgroup",
+    "reporting_category", "ELAS_EL", "English Learner",                     37L, 5L, "Student Subgroup",
+    "reporting_category", "SG_DS", "Students with Disabilities",            38L, 5L, "Student Subgroup",
+    "reporting_category", "SD",    "Students with Disabilities",            38L, 5L, "Student Subgroup",
+    "reporting_category", "SG_SD", "Socioeconomically Disadvantaged",       39L, 5L, "Student Subgroup",
+    "reporting_category", "SS",    "Socioeconomically Disadvantaged",       39L, 5L, "Student Subgroup",
+    "reporting_category", "SG_MG", "Migrant Youth",                         40L, 5L, "Student Subgroup",
+    "reporting_category", "SM",    "Migrant Youth",                         40L, 5L, "Student Subgroup",
+    "reporting_category", "SG_FS", "Foster Youth",                          41L, 5L, "Student Subgroup",
+    "reporting_category", "SF",    "Foster Youth",                          41L, 5L, "Student Subgroup",
+    "reporting_category", "SG_HM", "Homeless Youth",                        42L, 5L, "Student Subgroup",
+    "reporting_category", "SH",    "Homeless Youth",                        42L, 5L, "Student Subgroup",
+    "reporting_category", "S5",    "Student with a 504 Accommodation Plan", 43L, 5L, "Student Subgroup",
+    "reporting_category", "HUYN",  "Not Homeless Unaccompanied Youth",      44L, 5L, "Student Subgroup",
+    "reporting_category", "HUYY",  "Homeless Unaccompanied Youth",          45L, 5L, "Student Subgroup",
+    "reporting_category", "CAY",   "Is Chronically Absent",                 48L, 5L, "Student Subgroup",
+    "reporting_category", "CAN",   "Is Not Chronically Absent",             49L, 5L, "Student Subgroup"
+  )
+
+  # ---------------------------------------
+  # English-language acquisition status
+  # ---------------------------------------
+
+  english_status_map <- tibble::tribble(
+    ~variable_type, ~source_value, ~label, ~num, ~group_num, ~group,
+    "reporting_category", "EL_Y",      "Is an English Learner",                    46L, 8L, "English Language Acquisition Status",
+    "reporting_category", "EL_N",      "Is Not an English Learner",                47L, 8L, "English Language Acquisition Status",
+    "reporting_category", "ELAS_ADEL", "Adult English Learner",                    51L, 8L, "English Language Acquisition Status",
+    "reporting_category", "ELAS_EO",   "English Only",                             52L, 8L, "English Language Acquisition Status",
+    "reporting_category", "ELAS_IFEP", "Initial Fluent English Proficient",        53L, 8L, "English Language Acquisition Status",
+    "reporting_category", "ELAS_MISS", "EL Status Missing",                        54L, 8L, "English Language Acquisition Status",
+    "reporting_category", "ELAS_RFEP", "Reclassified Fluent English Proficient",   55L, 8L, "English Language Acquisition Status",
+    "reporting_category", "ELAS_TBD",  "English Status TBD",                       56L, 8L, "English Language Acquisition Status"
+  )
+
+  # ---------------------------------------
+  # Disability categories
+  # ---------------------------------------
+
+  disability_map <- tibble::tribble(
+    ~variable_type, ~source_value, ~label, ~num, ~group_num, ~group,
+    "reporting_category", "DC_AUT",  "Autism",                           57L, 7L, "Disability Category",
+    "reporting_category", "DC_DB",   "Deaf Blindedness",                 58L, 7L, "Disability Category",
+    "reporting_category", "DC_DFHI", "Deaf/Hearing Impairment",          59L, 7L, "Disability Category",
+    "reporting_category", "DC_ED",   "Emotional Disturbance",            60L, 7L, "Disability Category",
+    "reporting_category", "DC_EMD",  "Established Medical Disability",   61L, 7L, "Disability Category",
+    "reporting_category", "DC_HH",   "Hard of Hearing",                  62L, 7L, "Disability Category",
+    "reporting_category", "DC_ID",   "Intellectual Disability",          63L, 7L, "Disability Category",
+    "reporting_category", "DC_MD",   "Multiple Disabilities",            64L, 7L, "Disability Category",
+    "reporting_category", "DC_OHI",  "Other Health Impairment",          65L, 7L, "Disability Category",
+    "reporting_category", "DC_OI",   "Orthopedic Health Impairment",      66L, 7L, "Disability Category",
+    "reporting_category", "DC_SLD",  "Specific Learning Disability",     67L, 7L, "Disability Category",
+    "reporting_category", "DC_SLI",  "Speech or Language Impairment",    68L, 7L, "Disability Category",
+    "reporting_category", "DC_TBI",  "Traumatic Brain Injury",           69L, 7L, "Disability Category",
+    "reporting_category", "DC_VI",   "Visual Impairment",                70L, 7L, "Disability Category"
+  )
+
+  # ---------------------------------------
+  # Total-student category
+  # ---------------------------------------
+
+  total_student_map <- tibble::tribble(
+    ~variable_type, ~source_value, ~label, ~num, ~group_num, ~group,
+    "reporting_category", "TA", "Total Number of Students", 50L, 6L,
+    "Total Number of Students"
+  )
+
+  common_map <- dplyr::bind_rows(
+    race_map,
+    grade_map,
+    grade_span_map,
+    gender_map,
+    staff_gender_map,
+    age_range_map,
+    student_subgroup_map,
+    english_status_map,
+    disability_map,
+    total_student_map
+  )
+
+  common_map <- common_map |>
+    dplyr::mutate(
+      source_value =
+        standardize_cde_source_value(
+          .data$source_value
+        ),
+      source_note =
+        "Existing cdetidy classification map; stable classification."
+    )
+
+  common_map
+}
+
+
+# -----------------------------------------------------------------------------
+# Context-specific CDE classification rows
+# -----------------------------------------------------------------------------
+
+cde_context_classification_rows <- function(
+    dataset,
+    file_type,
+    data_year) {
+
+  context_map <- tibble::tibble(
+    variable_type = character(),
+    source_value = character(),
+    label = character(),
+    num = integer(),
+    group_num = integer(),
+    group = character(),
+    source_note = character()
+  )
+
+  # ---------------------------------------
+  # Graduation and dropout gender drift
+  # ---------------------------------------
+  #
+  # In the 2018-19 files, GX represented missing gender.
+  # Beginning with 2019-20, GX represented non-binary gender.
+
+  if (
+    dataset == "graduation" &&
+    file_type %in%
+    c(
+      "cohort",
+      "dropout"
+    )
+  ) {
+
+    if (data_year == 19L) {
+      context_map <- dplyr::bind_rows(
+        context_map,
+        tibble::tribble(
+          ~variable_type,       ~source_value, ~label,           ~num, ~group_num, ~group,  ~source_note,
+          "reporting_category", "GX",          "Gender Missing", 36L,  4L,         "Gender",
+          "CDE schema drift: GX represented missing gender in 2018-19 graduation and dropout files."
+        )
+      )
+    }
+
+    if (data_year >= 20L) {
+      context_map <- dplyr::bind_rows(
+        context_map,
+        tibble::tribble(
+          ~variable_type,       ~source_value, ~label,       ~num, ~group_num, ~group,  ~source_note,
+          "reporting_category", "GX",          "Non-Binary", 35L,  4L,         "Gender",
+          "CDE schema drift: GX represented non-binary gender beginning in 2019-20 graduation and dropout files."
+        )
       )
     }
   }
 
-  return(df)
+  # ---------------------------------------
+  # Restraint and seclusion gender codes
+  # ---------------------------------------
+  #
+  # Restraint and seclusion files use GN for non-binary
+  # and GX for missing gender.
+
+  if (
+    dataset == "restraint_seclusion" &&
+    file_type == "overall" &&
+    data_year >= 20L
+  ) {
+    context_map <- dplyr::bind_rows(
+      context_map,
+      tibble::tribble(
+        ~variable_type,       ~source_value, ~label,           ~num, ~group_num, ~group,  ~source_note,
+        "reporting_category", "GN",          "Non-Binary",     35L,  4L,         "Gender",
+        "CDE schema drift: restraint and seclusion files use GN for non-binary gender.",
+        "reporting_category", "GX",          "Gender Missing", 36L,  4L,         "Gender",
+        "CDE schema drift: restraint and seclusion files use GX for missing gender."
+      )
+    )
+  }
+
+  # ---------------------------------------
+  # Certificated staff all-gender category
+  # ---------------------------------------
+  #
+  # ALL in staff_gender means all genders. It must not
+  # inherit the grade-span meaning of ALL.
+
+  if (
+    dataset == "certificated_staff" &&
+    file_type == "race_ethnicity" &&
+    data_year >= 20L
+  ) {
+    context_map <- dplyr::bind_rows(
+      context_map,
+      tibble::tribble(
+        ~variable_type,
+        ~source_value,
+        ~label,
+        ~num,
+        ~group_num,
+        ~group,
+        ~source_note,
+
+        "staff_gender",
+        "ALL",
+        "All",
+        87L,
+        4L,
+        "Gender",
+        paste(
+          "CDE staff race/ethnicity files use ALL",
+          "for all staff genders. Canonical ID 87",
+          "replaces the legacy assignment of 36."
+        ),
+
+        "staff_gender",
+        "GX",
+        "Non-Binary",
+        35L,
+        4L,
+        "Gender",
+        paste(
+          "CDE staff race/ethnicity files use GX",
+          "for non-binary staff gender."
+        )
+      )
+    )
+  }
+
+  context_map <- context_map |>
+    dplyr::mutate(
+      source_value =
+        standardize_cde_source_value(
+          .data$source_value
+        )
+    )
+
+  context_map
+}
+
+
+# -----------------------------------------------------------------------------
+# Build a context-specific CDE classification map
+# -----------------------------------------------------------------------------
+
+cde_classification_map <- function(
+    dataset,
+    file_type,
+    data_year) {
+
+  if (!is.character(dataset) ||
+      length(dataset) != 1L ||
+      is.na(dataset) ||
+      trimws(dataset) == "") {
+    stop(
+      "`dataset` must contain exactly one nonmissing character value.",
+      call. = FALSE
+    )
+  }
+
+  if (!is.character(file_type) ||
+      length(file_type) != 1L ||
+      is.na(file_type) ||
+      trimws(file_type) == "") {
+    stop(
+      "`file_type` must contain exactly one nonmissing character value.",
+      call. = FALSE
+    )
+  }
+
+  if (!is.numeric(data_year) ||
+      length(data_year) != 1L ||
+      is.na(data_year) ||
+      data_year != as.integer(data_year) ||
+      data_year < 0L ||
+      data_year > 99L) {
+    stop(
+      "`data_year` must be one two-digit ending year, such as 25.",
+      call. = FALSE
+    )
+  }
+
+  dataset <- tolower(
+    trimws(dataset)
+  )
+
+  file_type <- tolower(
+    trimws(file_type)
+  )
+
+  data_year <- as.integer(
+    data_year
+  )
+
+  common_map <-
+    cde_common_classification_rows()
+
+  context_map <-
+    cde_context_classification_rows(
+      dataset = dataset,
+      file_type = file_type,
+      data_year = data_year
+    )
+
+  if (nrow(context_map) > 0L) {
+    common_map <- dplyr::anti_join(
+      common_map,
+      context_map,
+      by = c(
+        "variable_type",
+        "source_value"))}
+
+  classification_map <- dplyr::bind_rows(
+    common_map,
+    context_map)
+
+  classification_map <- classification_map |>
+    dplyr::mutate(
+      dataset = dataset,
+      file_type = file_type,
+      data_year = data_year,
+      .before = 1L) |>
+    dplyr::select(
+      "dataset",
+      "file_type",
+      "data_year",
+      "variable_type",
+      "source_value",
+      "label",
+      "num",
+      "group_num",
+      "group",
+      "source_note"
+    )
+
+  classification_map <- data.frame(
+    classification_map,
+    stringsAsFactors = FALSE
+  )
+
+  classification_map$num <- as.integer(
+    classification_map$num
+  )
+
+  classification_map$group_num <- as.integer(
+    classification_map$group_num
+  )
+
+  classification_map$data_year <- as.integer(
+    classification_map$data_year
+  )
+
+  rownames(classification_map) <- NULL
+
+  validate_cde_classification_map(
+    classification_map
+  )
+
+  classification_map
+}
+
+# -----------------------------------------------------------------------------
+# Comprehensive canonical CDE classification lookup
+# -----------------------------------------------------------------------------
+
+#' Return the comprehensive CDE classification lookup
+#'
+#' Returns one row per canonical CDE classification. The combination of
+#' `group_num` and `num` uniquely identifies each human-readable label.
+#'
+#' @return A tibble containing `group_num`, `num`, `label`, and `group`.
+#'
+#' @export
+cde_classification_lookup <- function() {
+
+  common_classifications <-
+    cde_common_classification_rows() |>
+    dplyr::select(
+      "group_num",
+      "num",
+      "label",
+      "group"
+    )
+
+  # Canonical classifications introduced by contextual rules
+  contextual_classifications <- tibble::tribble(
+    ~group_num, ~num, ~label, ~group,
+    4L,         87L,  "All",  "Gender"
+  )
+
+  classification_lookup <- dplyr::bind_rows(
+    common_classifications,
+    contextual_classifications
+  ) |>
+    dplyr::distinct(
+      .data$group_num,
+      .data$num,
+      .data$label,
+      .data$group
+    ) |>
+    dplyr::arrange(
+      .data$group_num,
+      .data$num
+    )
+
+  duplicate_canonical_key <- duplicated(
+    classification_lookup[
+      c(
+        "group_num",
+        "num"
+      )
+    ]
+  ) |
+    duplicated(
+      classification_lookup[
+        c(
+          "group_num",
+          "num"
+        )
+      ],
+      fromLast = TRUE
+    )
+
+  if (any(duplicate_canonical_key)) {
+    duplicate_rows <- classification_lookup[
+      duplicate_canonical_key,
+      ,
+      drop = FALSE
+    ]
+
+    stop(
+      "The comprehensive CDE classification lookup contains ",
+      "duplicate canonical keys:\n",
+      paste(
+        utils::capture.output(
+          print(
+            duplicate_rows,
+            row.names = FALSE
+          )
+        ),
+        collapse = "\n"
+      ),
+      call. = FALSE
+    )
+  }
+
+  classification_lookup$group_num <- as.integer(
+    classification_lookup$group_num
+  )
+
+  classification_lookup$num <- as.integer(
+    classification_lookup$num
+  )
+
+  rownames(classification_lookup) <- NULL
+
+  tibble::as_tibble(
+    classification_lookup
+  )
+}
+
+#' Label CDE-file classifications using contextual mappings
+#'
+#' Applies dataset-, file-, year-, and variable-specific classification maps
+#' to one or more columns in a CDE data file.
+#'
+#' @param df A data frame containing CDE classification columns.
+#' @param var_names Character vector containing source-column names.
+#' @param output_names Character vector containing output-column prefixes.
+#' @param variable_types Character vector identifying the semantic type of
+#'   each source column. Supported values are `"reporting_category"`,
+#'   `"grade"`, `"grade_span"`, and `"staff_gender"`.
+#' @param dataset Character value identifying the CDE dataset family.
+#' @param file_type Character value identifying the file type within the
+#'   dataset family.
+#' @param data_year Two-digit ending year, such as `25`.
+#' @param validate If `TRUE`, print the observed mappings and row counts.
+#' @param fail_on_unmapped If `TRUE`, stop when a nonmissing source value
+#'   cannot be mapped. If `FALSE`, issue a warning.
+#' @param return_map If `TRUE`, return a named list containing the labeled
+#'   data in `data` and the applicable classification map in `map`.
+#'
+#' @return If `return_map = FALSE`, the original data frame with four new
+#'   columns per source variable: `<prefix>_label`, `<prefix>_num`,
+#'   `<prefix>_group_num`, and `<prefix>_group`. If `return_map = TRUE`,
+#'   a named list containing the labeled data and applicable map.
+#'
+#' @export
+cde_files_group_labeling <- function(
+    df,
+    var_names,
+    output_names,
+    variable_types,
+    dataset,
+    file_type,
+    data_year,
+    validate = FALSE,
+    fail_on_unmapped = TRUE,
+    return_map = FALSE) {
+
+  # ---------------------------------------
+  # Validate data and column arguments
+  # ---------------------------------------
+
+  supported_variable_types <- c(
+    "reporting_category",
+    "grade",
+    "grade_span",
+    "staff_gender"
+  )
+
+  if (missing(variable_types)) {
+    stop(
+      paste0(
+        "`variable_types` is required.\n\n",
+        "Choose one classification type for each entry ",
+        "in `var_names`.\n\n",
+        "Supported values:\n",
+        paste0(
+          "  - ",
+          supported_variable_types,
+          collapse = "\n"
+        )
+      ),
+      call. = FALSE
+    )
+  }
+
+  if (
+    !is.character(variable_types) ||
+    length(variable_types) == 0L ||
+    anyNA(variable_types)
+  ) {
+    stop(
+      "`variable_types` must be a nonempty character vector.",
+      call. = FALSE
+    )
+  }
+
+  unsupported_variable_types <- setdiff(
+    variable_types,
+    supported_variable_types
+  )
+
+  if (length(unsupported_variable_types) > 0L) {
+    stop(
+      paste0(
+        "Unsupported `variable_types` value(s):\n",
+        paste0(
+          "  - ",
+          unsupported_variable_types,
+          collapse = "\n"
+        ),
+        "\n\n",
+        "Supported values:\n",
+        paste0(
+          "  - ",
+          supported_variable_types,
+          collapse = "\n"
+        )
+      ),
+      call. = FALSE
+    )
+  }
+
+  if (!is.data.frame(df)) {
+    stop(
+      "`df` must be a data frame.",
+      call. = FALSE
+    )
+  }
+
+  argument_lengths <- c(
+    var_names = length(var_names),
+    output_names = length(output_names),
+    variable_types = length(variable_types)
+  )
+
+  if (length(unique(argument_lengths)) != 1L) {
+    stop(
+      "`var_names`, `output_names`, and `variable_types` ",
+      "must have the same length.",
+      call. = FALSE
+    )
+  }
+
+  if (length(var_names) == 0L) {
+    stop(
+      "At least one source column must be supplied.",
+      call. = FALSE
+    )
+  }
+
+  character_arguments <- list(
+    var_names = var_names,
+    output_names = output_names,
+    variable_types = variable_types
+  )
+
+  invalid_character_arguments <- names(
+    character_arguments
+  )[
+    !vapply(
+      character_arguments,
+      is.character,
+      logical(1)
+    )
+  ]
+
+  if (length(invalid_character_arguments) > 0L) {
+    stop(
+      "The following argument(s) must be character vectors: ",
+      paste(
+        invalid_character_arguments,
+        collapse = ", "
+      ),
+      ".",
+      call. = FALSE
+    )
+  }
+
+  missing_argument_values <- vapply(
+    character_arguments,
+    function(value) {
+      anyNA(value) ||
+        any(trimws(value) == "")
+    },
+    logical(1)
+  )
+
+  if (any(missing_argument_values)) {
+    stop(
+      "The following argument(s) contain missing or blank values: ",
+      paste(
+        names(missing_argument_values)[
+          missing_argument_values
+        ],
+        collapse = ", "
+      ),
+      ".",
+      call. = FALSE
+    )
+  }
+
+  missing_columns <- setdiff(
+    var_names,
+    names(df)
+  )
+
+  if (length(missing_columns) > 0L) {
+    stop(
+      "Missing CDE source column(s): ",
+      paste(
+        missing_columns,
+        collapse = ", "
+      ),
+      ".",
+      call. = FALSE
+    )
+  }
+
+  duplicated_output_names <- unique(
+    output_names[
+      duplicated(output_names)
+    ]
+  )
+
+  if (length(duplicated_output_names) > 0L) {
+    stop(
+      "`output_names` contains duplicate prefix(es): ",
+      paste(
+        duplicated_output_names,
+        collapse = ", "
+      ),
+      ".",
+      call. = FALSE
+    )
+  }
+
+  # ---------------------------------------
+  # Validate logical arguments
+  # ---------------------------------------
+
+  logical_arguments <- list(
+    validate = validate,
+    fail_on_unmapped = fail_on_unmapped,
+    return_map = return_map
+  )
+
+  invalid_logical_arguments <- names(
+    logical_arguments
+  )[
+    !vapply(
+      logical_arguments,
+      function(value) {
+        is.logical(value) &&
+          length(value) == 1L &&
+          !is.na(value)
+      },
+      logical(1)
+    )
+  ]
+
+  if (length(invalid_logical_arguments) > 0L) {
+    stop(
+      "The following argument(s) must be either `TRUE` or `FALSE`: ",
+      paste(
+        invalid_logical_arguments,
+        collapse = ", "
+      ),
+      ".",
+      call. = FALSE
+    )
+  }
+
+  # ---------------------------------------
+  # Build the applicable classification map
+  # ---------------------------------------
+
+  classification_map <-
+    cde_classification_map(
+      dataset = dataset,
+      file_type = file_type,
+      data_year = data_year
+    )
+
+  # ---------------------------------------
+  # Apply each requested classification
+  # ---------------------------------------
+
+  for (index in seq_along(
+    var_names
+  )) {
+
+    source_column <- var_names[[index]]
+    output_prefix <- output_names[[index]]
+    variable_type <- variable_types[[index]]
+
+    lookup <- classification_map[
+      classification_map$variable_type ==
+        variable_type,
+      ,
+      drop = FALSE
+    ]
+
+    if (nrow(lookup) == 0L) {
+      stop(
+        "No classification rows are available for variable type `",
+        variable_type,
+        "` in dataset `",
+        tolower(trimws(dataset)),
+        "`, file type `",
+        tolower(trimws(file_type)),
+        "`, and data year ",
+        as.integer(data_year),
+        ".",
+        call. = FALSE
+      )
+    }
+
+    source_value <-
+      standardize_cde_source_value(
+        df[[source_column]]
+      )
+
+    match_index <- match(
+      source_value,
+      lookup$source_value
+    )
+
+    source_is_missing <- is.na(
+      source_value
+    )
+
+    unmapped <- (
+      !source_is_missing &
+        is.na(match_index)
+    )
+
+    if (any(unmapped)) {
+      unmapped_values <- sort(unique(
+        source_value[
+          unmapped
+        ]
+      ))
+
+      unmapped_message <- paste0(
+        "Dataset `",
+        tolower(trimws(dataset)),
+        "`, file type `",
+        tolower(trimws(file_type)),
+        "`, and data year ",
+        as.integer(data_year),
+        " contain unmapped value(s) in `",
+        source_column,
+        "` for variable type `",
+        variable_type,
+        "`: ",
+        paste(
+          unmapped_values,
+          collapse = ", "
+        ),
+        ". Update the contextual classification map before continuing."
+      )
+
+      if (isTRUE(fail_on_unmapped)) {
+        stop(
+          unmapped_message,
+          call. = FALSE
+        )
+      } else {
+        warning(
+          unmapped_message,
+          call. = FALSE
+        )
+      }
+    }
+
+    df[[
+      paste0(
+        output_prefix,
+        "_label"
+      )
+    ]] <- lookup$label[
+      match_index
+    ]
+
+    df[[
+      paste0(
+        output_prefix,
+        "_num"
+      )
+    ]] <- lookup$num[
+      match_index
+    ]
+
+    df[[
+      paste0(
+        output_prefix,
+        "_group_num"
+      )
+    ]] <- lookup$group_num[
+      match_index
+    ]
+
+    df[[
+      paste0(
+        output_prefix,
+        "_group"
+      )
+    ]] <- lookup$group[
+      match_index
+    ]
+
+    # -------------------------------------
+    # Optional mapping summary
+    # -------------------------------------
+
+    if (isTRUE(validate)) {
+      observed_frequency <- table(
+        source_value,
+        useNA = "no"
+      )
+
+      observed_values <- names(
+        observed_frequency
+      )
+
+      validation_table <- lookup[
+        lookup$source_value %in%
+          observed_values,
+        c(
+          "source_value",
+          "label",
+          "num",
+          "group_num",
+          "group",
+          "source_note"
+        ),
+        drop = FALSE
+      ]
+
+      validation_table$rows <- as.integer(
+        observed_frequency[
+          match(
+            validation_table$source_value,
+            observed_values
+          )
+        ]
+      )
+
+      validation_table <- validation_table[
+        order(
+          validation_table$source_value
+        ),
+        ,
+        drop = FALSE
+      ]
+
+      rownames(validation_table) <- NULL
+
+      message(
+        "\n--- ",
+        source_column,
+        " mapping ---"
+      )
+
+      print(
+        validation_table,
+        row.names = FALSE
+      )
+    }
+  }
+
+  # ---------------------------------------
+  # Return data and optional map
+  # ---------------------------------------
+
+  if (isTRUE(return_map)) {
+    map_used <- classification_map[
+      classification_map$variable_type %in%
+        unique(variable_types),
+      ,
+      drop = FALSE
+    ]
+
+    rownames(map_used) <- NULL
+
+    return(
+      list(
+        data = df,
+        map = tibble::as_tibble(
+          map_used
+        )
+      )
+    )
+  }
+
+  df
 }
