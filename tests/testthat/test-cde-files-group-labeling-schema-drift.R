@@ -15,7 +15,7 @@ testthat::test_that(
           NA_character_
         )
       )
-    
+
     testthat::expect_identical(
       standardized_values,
       c(
@@ -38,7 +38,7 @@ testthat::test_that(
         file_type = "cohort",
         data_year = 25L
       )
-    
+
     primary_key_columns <- c(
       "dataset",
       "file_type",
@@ -46,7 +46,7 @@ testthat::test_that(
       "variable_type",
       "source_value"
     )
-    
+
     testthat::expect_false(
       any(
         duplicated(
@@ -56,19 +56,19 @@ testthat::test_that(
         )
       )
     )
-    
+
     testthat::expect_true(
       is.integer(
         classification_map$data_year
       )
     )
-    
+
     testthat::expect_true(
       is.integer(
         classification_map$num
       )
     )
-    
+
     testthat::expect_true(
       is.integer(
         classification_map$group_num
@@ -87,14 +87,14 @@ testthat::test_that(
         file_type = "cohort",
         data_year = 25L
       )
-    
+
     reused_code <- classification_map[
       classification_map$source_value ==
         "GS_912",
       ,
       drop = FALSE
     ]
-    
+
     reused_code <- reused_code[
       order(
         reused_code$variable_type
@@ -102,7 +102,7 @@ testthat::test_that(
       ,
       drop = FALSE
     ]
-    
+
     testthat::expect_identical(
       reused_code$variable_type,
       c(
@@ -110,7 +110,7 @@ testthat::test_that(
         "grade_span"
       )
     )
-    
+
     testthat::expect_identical(
       reused_code$label,
       c(
@@ -118,7 +118,7 @@ testthat::test_that(
         "School grade span 9-12"
       )
     )
-    
+
     testthat::expect_identical(
       reused_code$num,
       c(
@@ -139,14 +139,14 @@ testthat::test_that(
         file_type = "cohort",
         data_year = 19L
       )
-    
+
     map_2025 <-
       cde_classification_map(
         dataset = "graduation",
         file_type = "cohort",
         data_year = 25L
       )
-    
+
     gx_2019 <- map_2019[
       map_2019$variable_type ==
         "reporting_category" &
@@ -155,7 +155,7 @@ testthat::test_that(
       ,
       drop = FALSE
     ]
-    
+
     gx_2025 <- map_2025[
       map_2025$variable_type ==
         "reporting_category" &
@@ -164,32 +164,32 @@ testthat::test_that(
       ,
       drop = FALSE
     ]
-    
+
     testthat::expect_equal(
       nrow(gx_2019),
       1L
     )
-    
+
     testthat::expect_equal(
       nrow(gx_2025),
       1L
     )
-    
+
     testthat::expect_identical(
       gx_2019$label,
       "Gender Missing"
     )
-    
+
     testthat::expect_identical(
       gx_2019$num,
       36L
     )
-    
+
     testthat::expect_identical(
       gx_2025$label,
       "Non-Binary"
     )
-    
+
     testthat::expect_identical(
       gx_2025$num,
       35L
@@ -207,33 +207,33 @@ testthat::test_that(
         file_type = "dropout",
         data_year = 19L
       )
-    
+
     map_2025 <-
       cde_classification_map(
         dataset = "graduation",
         file_type = "dropout",
         data_year = 25L
       )
-    
+
     gx_2019 <- map_2019[
       map_2019$source_value ==
         "GX",
       ,
       drop = FALSE
     ]
-    
+
     gx_2025 <- map_2025[
       map_2025$source_value ==
         "GX",
       ,
       drop = FALSE
     ]
-    
+
     testthat::expect_identical(
       gx_2019$label,
       "Gender Missing"
     )
-    
+
     testthat::expect_identical(
       gx_2025$label,
       "Non-Binary"
@@ -251,7 +251,7 @@ testthat::test_that(
         file_type = "cohort",
         data_year = 25L
       )
-    
+
     invalid_map <- rbind(
       classification_map,
       classification_map[
@@ -260,7 +260,7 @@ testthat::test_that(
         drop = FALSE
       ]
     )
-    
+
     testthat::expect_error(
       validate_cde_classification_map(
         invalid_map
@@ -279,7 +279,7 @@ testthat::test_that(
         file_type = "overall",
         data_year = 20L
       )
-    
+
     gender_rows <- classification_map[
       classification_map$source_value %in%
         c(
@@ -289,7 +289,7 @@ testthat::test_that(
       ,
       drop = FALSE
     ]
-    
+
     gender_rows <- gender_rows[
       order(
         gender_rows$source_value
@@ -297,7 +297,7 @@ testthat::test_that(
       ,
       drop = FALSE
     ]
-    
+
     testthat::expect_identical(
       gender_rows$source_value,
       c(
@@ -305,7 +305,7 @@ testthat::test_that(
         "GX"
       )
     )
-    
+
     testthat::expect_identical(
       gender_rows$label,
       c(
@@ -313,7 +313,7 @@ testthat::test_that(
         "Gender Missing"
       )
     )
-    
+
     testthat::expect_identical(
       gender_rows$num,
       c(
@@ -321,7 +321,7 @@ testthat::test_that(
         36L
       )
     )
-    
+
     testthat::expect_identical(
       gender_rows$group_num,
       c(
@@ -342,14 +342,14 @@ testthat::test_that(
         file_type = "race_ethnicity",
         data_year = 20L
       )
-    
+
     all_rows <- classification_map[
       classification_map$source_value ==
         "ALL",
       ,
       drop = FALSE
     ]
-    
+
     all_rows <- all_rows[
       order(
         all_rows$variable_type
@@ -357,7 +357,7 @@ testthat::test_that(
       ,
       drop = FALSE
     ]
-    
+
     testthat::expect_identical(
       all_rows$variable_type,
       c(
@@ -365,7 +365,7 @@ testthat::test_that(
         "staff_gender"
       )
     )
-    
+
     testthat::expect_identical(
       all_rows$label,
       c(
@@ -373,7 +373,7 @@ testthat::test_that(
         "All"
       )
     )
-    
+
     testthat::expect_identical(
       all_rows$num,
       c(
@@ -381,7 +381,7 @@ testthat::test_that(
         87L
       )
     )
-    
+
     testthat::expect_identical(
       all_rows$group,
       c(
@@ -404,9 +404,9 @@ testthat::test_that(
       ),
       stringsAsFactors = FALSE
     )
-    
+
     original_data <- source_data
-    
+
     labeled_data <-
       cde_files_group_labeling(
         df = source_data,
@@ -417,12 +417,12 @@ testthat::test_that(
         file_type = "cohort",
         data_year = 19L
       )
-    
+
     testthat::expect_identical(
       source_data,
       original_data
     )
-    
+
     testthat::expect_identical(
       labeled_data$demo_group_label,
       c(
@@ -432,7 +432,7 @@ testthat::test_that(
         NA_character_
       )
     )
-    
+
     testthat::expect_identical(
       labeled_data$demo_group_num,
       c(
@@ -442,13 +442,13 @@ testthat::test_that(
         NA_integer_
       )
     )
-    
+
     testthat::expect_true(
       is.integer(
         labeled_data$demo_group_num
       )
     )
-    
+
     testthat::expect_true(
       is.integer(
         labeled_data$demo_group_group_num
@@ -466,7 +466,7 @@ testthat::test_that(
       staff_gender = "ALL",
       stringsAsFactors = FALSE
     )
-    
+
     labeled_data <-
       cde_files_group_labeling(
         df = source_data,
@@ -486,7 +486,7 @@ testthat::test_that(
         file_type = "race_ethnicity",
         data_year = 20L
       )
-    
+
     testthat::expect_identical(
       c(
         labeled_data$grade_span_label,
@@ -497,7 +497,7 @@ testthat::test_that(
         "All"
       )
     )
-    
+
     testthat::expect_identical(
       c(
         labeled_data$grade_span_num,
@@ -519,7 +519,7 @@ testthat::test_that(
       reporting_category = "UNKNOWN_CODE",
       stringsAsFactors = FALSE
     )
-    
+
     testthat::expect_error(
       cde_files_group_labeling(
         df = source_data,
@@ -533,7 +533,7 @@ testthat::test_that(
       ),
       regexp = "unmapped value"
     )
-    
+
     testthat::expect_warning(
       cde_files_group_labeling(
         df = source_data,
@@ -558,7 +558,7 @@ testthat::test_that(
       reporting_category = "GX",
       stringsAsFactors = FALSE
     )
-    
+
     result <-
       cde_files_group_labeling(
         df = source_data,
@@ -570,7 +570,7 @@ testthat::test_that(
         data_year = 19L,
         return_map = TRUE
       )
-    
+
     testthat::expect_named(
       result,
       c(
@@ -578,17 +578,17 @@ testthat::test_that(
         "map"
       )
     )
-    
+
     testthat::expect_s3_class(
       result$data,
       "data.frame"
     )
-    
+
     testthat::expect_s3_class(
       result$map,
       "tbl_df"
     )
-    
+
     testthat::expect_true(
       all(
         c(
@@ -614,7 +614,7 @@ testthat::test_that(
         file_type = "race_ethnicity",
         data_year = 20L
       )
-    
+
     canonical_classifications <- unique(
       classification_map[
         c(
@@ -625,7 +625,7 @@ testthat::test_that(
         )
       ]
     )
-    
+
     testthat::expect_false(
       any(
         duplicated(
@@ -638,7 +638,7 @@ testthat::test_that(
         )
       )
     )
-    
+
     staff_all <- classification_map[
       classification_map$variable_type ==
         "staff_gender" &
@@ -647,12 +647,12 @@ testthat::test_that(
       ,
       drop = FALSE
     ]
-    
+
     testthat::expect_identical(
       staff_all$num,
       87L
     )
-    
+
     testthat::expect_identical(
       staff_all$label,
       "All"
@@ -665,17 +665,17 @@ testthat::test_that(
   {
     classification_lookup <-
       cde_classification_lookup()
-    
+
     testthat::expect_s3_class(
       classification_lookup,
       "tbl_df"
     )
-    
+
     testthat::expect_equal(
       nrow(classification_lookup),
       87L
     )
-    
+
     testthat::expect_false(
       any(
         duplicated(
@@ -688,14 +688,14 @@ testthat::test_that(
         )
       )
     )
-    
+
     gender_lookup <- classification_lookup[
       classification_lookup$group ==
         "Gender",
       ,
       drop = FALSE
     ]
-    
+
     testthat::expect_identical(
       gender_lookup$num,
       c(
@@ -706,7 +706,7 @@ testthat::test_that(
         87L
       )
     )
-    
+
     testthat::expect_identical(
       gender_lookup$label,
       c(
@@ -744,7 +744,7 @@ testthat::test_that(
         40
       )
     )
-    
+
     readable_fact <- example_fact |>
       dplyr::left_join(
         cde_classification_lookup(),
@@ -753,13 +753,13 @@ testthat::test_that(
           "num"
         )
       )
-    
+
     testthat::expect_false(
       anyNA(
         readable_fact$label
       )
     )
-    
+
     testthat::expect_identical(
       readable_fact$label,
       c(
@@ -786,7 +786,7 @@ test_that(
       ),
       stringsAsFactors = FALSE
     )
-    
+
     result <- cde_files_group_labeling(
       df = test_data,
       var_names = c(
@@ -807,7 +807,7 @@ test_that(
       validate = FALSE,
       fail_on_unmapped = TRUE
     )
-    
+
     expect_identical(
       result$grade_span_num,
       c(
@@ -815,7 +815,7 @@ test_that(
         78L
       )
     )
-    
+
     expect_identical(
       result$gender_label,
       c(
@@ -823,7 +823,7 @@ test_that(
         "Non-Binary"
       )
     )
-    
+
     expect_identical(
       result$gender_num,
       c(
@@ -831,7 +831,7 @@ test_that(
         35L
       )
     )
-    
+
     expect_identical(
       result$gender_group_num,
       c(
@@ -881,41 +881,41 @@ test_that(
         data_year = 20L
       )
     )
-    
+
     error_message <- conditionMessage(
       captured_error
     )
-    
+
     expect_match(
       error_message,
       "Unsupported `variable_types` value(s):",
       fixed = TRUE
     )
-    
+
     expect_match(
       error_message,
       "- gender",
       fixed = TRUE
     )
-    
+
     expect_match(
       error_message,
       "- reporting_category",
       fixed = TRUE
     )
-    
+
     expect_match(
       error_message,
       "- grade",
       fixed = TRUE
     )
-    
+
     expect_match(
       error_message,
       "- grade_span",
       fixed = TRUE
     )
-    
+
     expect_match(
       error_message,
       "- staff_gender",
@@ -923,3 +923,67 @@ test_that(
     )
   }
 )
+
+test_that("absenteeism mixed reporting categories map contextually", {
+  source_data <- data.frame(
+    reporting_category = c(
+      "GRKN",
+      "GR13",
+      "GR46",
+      "GR78",
+      "GRK8",
+      "GR912",
+      "GRTKKN",
+      "GRTK8",
+      "GX"
+    )
+  )
+
+  result <- cde_files_group_labeling(
+    df = source_data,
+    var_names = "reporting_category",
+    output_names = "demo_group",
+    variable_types = "reporting_category",
+    dataset = "absenteeism",
+    file_type = "chronic",
+    data_year = 25L
+  )
+
+  expect_equal(
+    result$demo_group_num,
+    c(
+      10L, 11L, 12L, 13L,
+      14L, 15L, 16L, 17L,
+      35L
+    )
+  )
+
+  expect_equal(
+    result$demo_group_group,
+    c(
+      rep("Grade", 8L),
+      "Gender"
+    )
+  )
+})
+
+test_that("discipline files interpret GX as non-binary gender", {
+  for (file_type in c("suspension", "expulsion")) {
+    map <- cde_classification_map(
+      dataset = "discipline",
+      file_type = file_type,
+      data_year = 25L
+    )
+
+    gx <- subset(
+      map,
+      variable_type == "reporting_category" &
+        source_value == "GX"
+    )
+
+    expect_equal(gx$label, "Non-Binary")
+    expect_equal(gx$num, 35L)
+    expect_equal(gx$group_num, 4L)
+    expect_equal(gx$group, "Gender")
+  }
+})

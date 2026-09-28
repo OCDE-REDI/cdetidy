@@ -641,6 +641,46 @@ cde_context_classification_rows <- function(
   }
 
   # ---------------------------------------
+  # Suspension and expulsion gender codes
+  # ---------------------------------------
+  #
+  # Beginning with 2019-20, suspension and
+  # expulsion files use GX for non-binary gender.
+
+  if (
+    dataset == "discipline" &&
+    file_type %in% c(
+      "suspension",
+      "expulsion"
+    ) &&
+    data_year >= 20L
+  ) {
+    context_map <- dplyr::bind_rows(
+      context_map,
+      tibble::tribble(
+        ~variable_type,
+        ~source_value,
+        ~label,
+        ~num,
+        ~group_num,
+        ~group,
+        ~source_note,
+
+        "reporting_category",
+        "GX",
+        "Non-Binary",
+        35L,
+        4L,
+        "Gender",
+        paste(
+          "CDE suspension and expulsion files use GX",
+          "for non-binary gender beginning in 2019-20."
+        )
+      )
+    )
+  }
+
+  # ---------------------------------------
   # Certificated staff all-gender category
   # ---------------------------------------
   #
@@ -687,6 +727,149 @@ cde_context_classification_rows <- function(
         )
       )
     )
+  }
+
+  # ---------------------------------------
+  # Absenteeism reporting categories
+  # ---------------------------------------
+  #
+  # Absenteeism files store grade-band codes in the mixed
+  # reporting_category column. GX represents non-binary
+  # gender beginning in 2019-20.
+
+  if (
+    dataset == "absenteeism" &&
+    file_type %in% c(
+      "chronic",
+      "reason"
+    )
+  ) {
+    context_map <- dplyr::bind_rows(
+      context_map,
+      tibble::tribble(
+        ~variable_type,
+        ~source_value,
+        ~label,
+        ~num,
+        ~group_num,
+        ~group,
+        ~source_note,
+
+        "reporting_category",
+        "GRKN",
+        "Kindergarten",
+        10L,
+        2L,
+        "Grade",
+        paste(
+          "Absenteeism files store grade bands in",
+          "the reporting category column through 2022-23."
+        ),
+
+        "reporting_category",
+        "GR13",
+        "Grades 1-3",
+        11L,
+        2L,
+        "Grade",
+        paste(
+          "Absenteeism files store grade bands in",
+          "the reporting category column."
+        ),
+
+        "reporting_category",
+        "GR46",
+        "Grades 4-6",
+        12L,
+        2L,
+        "Grade",
+        paste(
+          "Absenteeism files store grade bands in",
+          "the reporting category column."
+        ),
+
+        "reporting_category",
+        "GR78",
+        "Grades 7-8",
+        13L,
+        2L,
+        "Grade",
+        paste(
+          "Absenteeism files store grade bands in",
+          "the reporting category column."
+        ),
+
+        "reporting_category",
+        "GRK8",
+        "Grades K-8",
+        14L,
+        2L,
+        "Grade",
+        paste(
+          "Absenteeism files store grade bands in",
+          "the reporting category column through 2022-23."
+        ),
+
+        "reporting_category",
+        "GR912",
+        "Grades 9-12",
+        15L,
+        2L,
+        "Grade",
+        paste(
+          "Absenteeism files store grade bands in",
+          "the reporting category column."
+        ),
+
+        "reporting_category",
+        "GRTKKN",
+        "Grades TK-K",
+        16L,
+        2L,
+        "Grade",
+        paste(
+          "Absenteeism files store grade bands in",
+          "the reporting category column beginning in 2023-24."
+        ),
+
+        "reporting_category",
+        "GRTK8",
+        "Grades TK-8",
+        17L,
+        2L,
+        "Grade",
+        paste(
+          "Absenteeism files store grade bands in",
+          "the reporting category column beginning in 2023-24."
+        )
+      )
+    )
+
+    if (data_year >= 20L) {
+      context_map <- dplyr::bind_rows(
+        context_map,
+        tibble::tribble(
+          ~variable_type,
+          ~source_value,
+          ~label,
+          ~num,
+          ~group_num,
+          ~group,
+          ~source_note,
+
+          "reporting_category",
+          "GX",
+          "Non-Binary",
+          35L,
+          4L,
+          "Gender",
+          paste(
+            "Absenteeism files use GX for non-binary",
+            "gender beginning in 2019-20."
+          )
+        )
+      )
+    }
   }
 
   context_map <- context_map |>
