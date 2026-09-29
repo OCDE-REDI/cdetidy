@@ -2,29 +2,36 @@
 % Please edit documentation in R/dashboard_files_group_labeling.R
 \name{dashboard_files_group_labeling}
 \alias{dashboard_files_group_labeling}
-\title{Apply dashboard classification mapping to one or more columns}
+\title{Apply dashboard student-group classifications}
 \usage{
 dashboard_files_group_labeling(df, var_names, output_names)
 }
 \arguments{
-\item{df}{A data frame containing one or more columns to classify.}
+\item{df}{A data frame containing the source classification columns.}
 
-\item{var_names}{A character vector of column names in `df` to which the classification should be applied.}
+\item{var_names}{Character vector naming the source columns.}
 
-\item{output_names}{A character vector of prefixes for the new output columns. Must be the same length as `var_names`.}
+\item{output_names}{Character vector containing the output prefixes. Must
+have the same length as \code{var_names}.}
 }
 \value{
-The original data frame with new columns added for each input variable:
-`<prefix>_label`, `<prefix>_num`, `<prefix>_group_num`, and `<prefix>_group`.
+The original data frame with four classification columns added for
+  each source column.
 }
 \description{
-Applies a hardcoded classification map to one or more columns in a dashboard-oriented dataset.
-For each input column, the function generates new output columns using user-defined prefixes:
-`<prefix>_label`, `<prefix>_num`, `<prefix>_group_num`, and `<prefix>_group`.
-It also interactively resolves duplicate codes that appear in more than one group.
+Maps one or more dashboard classification columns to standardized labels,
+numeric codes, and broader classification groups.
 }
 \details{
-- Classification values like `"AA"`, `"EL"`, `"SED"` are matched to a built-in classification map.
-- Duplicate values across multiple entries prompt the user to choose which label to apply.
-- The function raises an error if any input values are unmatched.
+For each source column, four output columns are created:
+\itemize{
+  \item \code{<prefix>_label}
+  \item \code{<prefix>_num}
+  \item \code{<prefix>_group_num}
+  \item \code{<prefix>_group}
+}
+
+Missing source values remain missing in all corresponding output columns.
+Any nonmissing source value not included in the classification map causes
+the function to stop.
 }

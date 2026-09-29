@@ -1,157 +1,332 @@
-#' Apply dashboard classification mapping to one or more columns
+#' Apply dashboard student-group classifications
 #'
-#' Applies a hardcoded classification map to one or more columns in a dashboard-oriented dataset.
-#' For each input column, the function generates new output columns using user-defined prefixes:
-#' `<prefix>_label`, `<prefix>_num`, `<prefix>_group_num`, and `<prefix>_group`.
-#' It also interactively resolves duplicate codes that appear in more than one group.
+#' Maps one or more dashboard classification columns to standardized labels,
+#' numeric codes, and broader classification groups.
 #'
-#' @param df A data frame containing one or more columns to classify.
-#' @param var_names A character vector of column names in `df` to which the classification should be applied.
-#' @param output_names A character vector of prefixes for the new output columns. Must be the same length as `var_names`.
+#' For each source column, four output columns are created:
+#' \itemize{
+#'   \item \code{<prefix>_label}
+#'   \item \code{<prefix>_num}
+#'   \item \code{<prefix>_group_num}
+#'   \item \code{<prefix>_group}
+#' }
 #'
-#' @return The original data frame with new columns added for each input variable:
-#' `<prefix>_label`, `<prefix>_num`, `<prefix>_group_num`, and `<prefix>_group`.
+#' Missing source values remain missing in all corresponding output columns.
+#' Any nonmissing source value not included in the classification map causes
+#' the function to stop.
 #'
-#' @details
-#' - Classification values like `"AA"`, `"EL"`, `"SED"` are matched to a built-in classification map.
-#' - Duplicate values across multiple entries prompt the user to choose which label to apply.
-#' - The function raises an error if any input values are unmatched.
+#' @param df A data frame containing the source classification columns.
+#' @param var_names Character vector naming the source columns.
+#' @param output_names Character vector containing the output prefixes. Must
+#'   have the same length as \code{var_names}.
+#'
+#' @return The original data frame with four classification columns added for
+#'   each source column.
 #'
 #' @export
+dashboard_files_group_labeling <- function(df,
+                                           var_names,
+                                           output_names) {
+  if (!is.data.frame(df)) {
+    stop(
+      "`df` must be a data frame.",
+      call. = FALSE
+    )
+  }
 
-dashboard_files_group_labeling <- function(df, var_names, output_names) {
+  if (
+    !is.character(var_names) ||
+    length(var_names) == 0L ||
+    anyNA(var_names) ||
+    any(var_names == "") ||
+    anyDuplicated(var_names)
+  ) {
+    stop(
+      "`var_names` must be a nonempty character vector ",
+      "containing unique column names.",
+      call. = FALSE
+    )
+  }
+
+  if (
+    !is.character(output_names) ||
+    length(output_names) == 0L ||
+    anyNA(output_names) ||
+    any(output_names == "") ||
+    anyDuplicated(output_names)
+  ) {
+    stop(
+      "`output_names` must be a nonempty character vector ",
+      "containing unique output prefixes.",
+      call. = FALSE
+    )
+  }
+
   if (length(var_names) != length(output_names)) {
-    stop("You must have the same number of variables as outputs")
+    stop(
+      "`var_names` and `output_names` must have the same length.",
+      call. = FALSE
+    )
   }
 
-  missing_cols <- setdiff(var_names, names(df))
-  if (length(missing_cols) > 0) {
-    stop(paste("Missing columns in dataframe:", paste(missing_cols, collapse = ", ")))
-  }
-
-  # ---- Internal helper: Only prompt if duplicates are also in the data ----
-  resolve_duplicates_interactively <- function(classification_map, df, var_names) {
-    all_values <- unlist(lapply(classification_map, function(x) x$values))
-    dupes <- unique(all_values[duplicated(all_values)])
-
-    # Get all values in the data across the relevant columns
-    data_values <- unique(unlist(as.data.frame(df)[, var_names]))
-
-    # Only keep duplicated values that also appear in the data
-    relevant_dupes <- intersect(dupes, data_values)
-    if (length(relevant_dupes) == 0) return(classification_map)
-
-    message("Duplicate classification values found in your data. Please choose which label to apply:")
-
-    resolved_map <- list()
-
-    for (dup in relevant_dupes) {
-      matching_entries <- Filter(function(x) dup %in% x$values, classification_map)
-
-      cat("\nValue:", dup, "\n")
-      for (i in seq_along(matching_entries)) {
-        cat(i, "-> label:", matching_entries[[i]]$label,
-            "| num:", matching_entries[[i]]$num,
-            "| group_num:", matching_entries[[i]]$group_num,
-            "| group:", matching_entries[[i]]$group, "\n")
-      }
-
-      choice <- as.integer(readline(prompt = "Select the number of the preferred option: "))
-      selected <- matching_entries[[choice]]
-      selected$values <- dup  # Keep only selected value
-
-      # Remove the value from all other entries in the full map
-      classification_map <- lapply(classification_map, function(x) {
-        x$values <- setdiff(x$values, dup)
-        x
-      })
-
-      # Add selected entry back
-      resolved_map <- append(resolved_map, list(selected))
-    }
-
-    # Keep all other non-duplicate or unresolved entries
-    unique_map <- Filter(function(x) all(!x$values %in% relevant_dupes), classification_map)
-    final_map <- append(unique_map, resolved_map)
-
-    return(final_map)
-  }
-
-  # Sample hardcoded classification map
-  classification_map <- list(
-    list(values = c("AA"), label = "Black/African American", num = 1, group_num = 1, group = "Race"),
-    list(values = c("AI"), label = "American Indian or Alaska Native", num = 2, group_num = 1, group = "Race"),
-    list(values = c("AS"), label = "Asian", num = 3, group_num = 1, group = "Race"),
-    list(values = c("FI"), label = "Filipino", num = 4, group_num = 1, group = "Race"),
-    list(values = c("HI"), label = "Hispanic", num = 5, group_num = 1, group = "Race"),
-    list(values = c("PI"), label = "Pacific Islander", num = 6, group_num = 1, group = "Race"),
-    list(values = c("MR"), label = "Multiple Races/Two or More", num = 7, group_num = 1, group = "Race"),
-    list(values = c("WH"), label = "White", num = 8, group_num = 1, group = "Race"),
-    list(values = c("SED"), label = "Socioeconomically Disadvantaged", num = 9, group_num = 2, group = "Student Subgroup"),
-    list(values = c("SWD"), label = "Students with Disabilities", num = 10, group_num = 2, group = "Student Subgroup"),
-    list(values = c("FOS"), label = "Foster Youth", num = 11, group_num = 2, group = "Student Subgroup"),
-    list(values = c("HOM"), label = "Homeless Youth", num = 12, group_num = 2, group = "Student Subgroup"),
-    list(values = c("RFP"), label = "Recently Reclassified Fluent-English Proficient Only", num = 13, group_num = 4, group = "English Language Acquisition Status"),
-    list(values = c("LTEL"), label = "Long-Term English Learner", num = 14, group_num = 2, group = "Student Subgroup"),
-    list(values = c("SBA"), label = "Students Who Took SBAC", num = 15, group_num = 3, group = "Test Taken"),
-    list(values = c("CAA"), label = "Students Who Took CAA", num = 16, group_num = 3, group = "Test Taken"),
-    list(values = c("CAST"), label = "Students Who Took CAST", num = 17, group_num = 3, group = "Test Taken"),
-    list(values = c("EL"), label = "English Learner", num = 18, group_num = 4, group = "English Language Acquisition Status"),
-    list(values = c("ELO"), label = "English Learners Only", num = 19, group_num = 4, group = "English Language Acquisition Status"),
-    list(values = c("EO"), label = "English Only", num = 20, group_num = 4, group = "English Language Acquisition Status"),
-    list(values = c("ALL"), label = "All Students", num = 21, group_num = 5, group = "All Students")
+  missing_columns <- setdiff(
+    var_names,
+    names(df)
   )
 
-  # ---- Resolve only relevant duplicates ----
-  classification_map <- resolve_duplicates_interactively(classification_map, df, var_names)
-
-  # ---- Apply classification across each column ----
-  for (i in seq_along(var_names)) {
-    var <- var_names[i]
-    prefix <- output_names[i]
-
-    label_col <- paste0(prefix, "_label")
-    num_col  <- paste0(prefix, "_num")
-    group_num_col <- paste0(prefix, "_group_num")
-    group_col <- paste0(prefix, "_group")
-
-    df[[label_col]] <- NA_character_
-    df[[num_col]]  <- NA_real_
-    df[[group_num_col]] <- NA_real_
-    df[[group_col]] <- NA_character_
-
-    current_values <- df[[var]]
-
-    for (entry in classification_map) {
-      matched <- ifelse(current_values %in% entry$values, TRUE, FALSE)
-
-      if (any(matched, na.rm = TRUE)) {
-        df[[label_col]] <- ifelse(is.na(df[[label_col]]) & matched, entry$label, df[[label_col]])
-        df[[num_col]]  <- ifelse(is.na(df[[num_col]])  & matched, entry$num,  df[[num_col]])
-        df[[group_num_col]] <- ifelse(is.na(df[[group_num_col]]) & matched, entry$group_num, df[[group_num_col]])
-        df[[group_col]] <- ifelse(is.na(df[[group_col]]) & matched, entry$group, df[[group_col]])
-      }
-    }
+  if (length(missing_columns) > 0L) {
+    stop(
+      "Missing source column(s): ",
+      paste(
+        missing_columns,
+        collapse = ", "
+      ),
+      call. = FALSE
+    )
   }
 
-  # ---- Final validation: Stop if unmapped values are found ----
+  classification_map <- data.frame(
+    source_value = c(
+      "AA",
+      "AI",
+      "AS",
+      "FI",
+      "HI",
+      "PI",
+      "MR",
+      "WH",
+      "SED",
+      "SWD",
+      "FOS",
+      "HOM",
+      "RFP",
+      "LTEL",
+      "SBA",
+      "CAA",
+      "CAST",
+      "EL",
+      "ELO",
+      "EO",
+      "ALL"
+    ),
+    label = c(
+      "Black/African American",
+      "American Indian or Alaska Native",
+      "Asian",
+      "Filipino",
+      "Hispanic",
+      "Pacific Islander",
+      "Multiple Races/Two or More",
+      "White",
+      "Socioeconomically Disadvantaged",
+      "Students with Disabilities",
+      "Foster Youth",
+      "Homeless Youth",
+      paste0(
+        "Recently Reclassified Fluent-English ",
+        "Proficient Only"
+      ),
+      "Long-Term English Learner",
+      "Students Who Took SBAC",
+      "Students Who Took CAA",
+      "Students Who Took CAST",
+      "English Learner",
+      "English Learners Only",
+      "English Only",
+      "All Students"
+    ),
+    num = c(
+      1L,
+      2L,
+      3L,
+      4L,
+      5L,
+      6L,
+      7L,
+      8L,
+      9L,
+      10L,
+      11L,
+      12L,
+      13L,
+      14L,
+      15L,
+      16L,
+      17L,
+      18L,
+      19L,
+      20L,
+      21L
+    ),
+    group_num = c(
+      1L,
+      1L,
+      1L,
+      1L,
+      1L,
+      1L,
+      1L,
+      1L,
+      2L,
+      2L,
+      2L,
+      2L,
+      4L,
+      2L,
+      3L,
+      3L,
+      3L,
+      4L,
+      4L,
+      4L,
+      5L
+    ),
+    group = c(
+      rep(
+        "Race",
+        8L
+      ),
+      rep(
+        "Student Subgroup",
+        4L
+      ),
+      "English Language Acquisition Status",
+      "Student Subgroup",
+      rep(
+        "Test Taken",
+        3L
+      ),
+      rep(
+        "English Language Acquisition Status",
+        3L
+      ),
+      "All Students"
+    ),
+    stringsAsFactors = FALSE
+  )
+
+  if (anyDuplicated(classification_map$source_value)) {
+    duplicated_values <- unique(
+      classification_map$source_value[
+        duplicated(
+          classification_map$source_value
+        )
+      ]
+    )
+
+    stop(
+      "Duplicate source values found in the classification map: ",
+      paste(
+        duplicated_values,
+        collapse = ", "
+      ),
+      call. = FALSE
+    )
+  }
+
+  output_columns <- unlist(
+    lapply(
+      output_names,
+      function(prefix) {
+        paste0(
+          prefix,
+          c(
+            "_label",
+            "_num",
+            "_group_num",
+            "_group"
+          )
+        )
+      }
+    ),
+    use.names = FALSE
+  )
+
+  existing_output_columns <- intersect(
+    output_columns,
+    names(df)
+  )
+
+  if (length(existing_output_columns) > 0L) {
+    stop(
+      "Classification output column(s) already exist: ",
+      paste(
+        existing_output_columns,
+        collapse = ", "
+      ),
+      call. = FALSE
+    )
+  }
+
   for (i in seq_along(var_names)) {
-    var <- var_names[i]
-    prefix <- output_names[i]
-    label_col <- paste0(prefix, "_label")
+    source_column <- var_names[[i]]
+    output_prefix <- output_names[[i]]
 
-    # Only consider rows where input is not NA but label is NA
-    unmatched_vals <- unique(df[[var]][is.na(df[[label_col]]) & !is.na(df[[var]])])
+    source_values <- as.character(
+      df[[source_column]]
+    )
 
-    if (length(unmatched_vals) > 0) {
+    match_index <- match(
+      source_values,
+      classification_map$source_value
+    )
+
+    unmapped_values <- sort(
+      unique(
+        source_values[
+          !is.na(source_values) &
+            is.na(match_index)
+        ]
+      )
+    )
+
+    if (length(unmapped_values) > 0L) {
+      displayed_values <- ifelse(
+        unmapped_values == "",
+        "<blank>",
+        unmapped_values
+      )
+
       stop(
-        "❌ The following ", length(unmatched_vals), " value(s) in column '", var,
-        "' could not be mapped:\n→ ",
-        paste(unmatched_vals, collapse = ", "),
-        "\nPlease update the classification map to include these values."
+        "Unmapped value(s) found in `",
+        source_column,
+        "`: ",
+        paste(
+          displayed_values,
+          collapse = ", "
+        ),
+        call. = FALSE
       )
     }
+
+    df[[paste0(
+      output_prefix,
+      "_label"
+    )]] <- classification_map$label[
+      match_index
+    ]
+
+    df[[paste0(
+      output_prefix,
+      "_num"
+    )]] <- classification_map$num[
+      match_index
+    ]
+
+    df[[paste0(
+      output_prefix,
+      "_group_num"
+    )]] <- classification_map$group_num[
+      match_index
+    ]
+
+    df[[paste0(
+      output_prefix,
+      "_group"
+    )]] <- classification_map$group[
+      match_index
+    ]
   }
 
-  return(df)
+  df
 }
