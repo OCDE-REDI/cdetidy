@@ -2,7 +2,7 @@
 % Please edit documentation in R/safe_fwrite_warehouse.R
 \name{safe_fwrite_warehouse}
 \alias{safe_fwrite_warehouse}
-\title{Safely write a warehouse-ready CSV file with metadata logging}
+\title{Legacy warehouse CSV export}
 \usage{
 safe_fwrite_warehouse(
   data,
@@ -66,17 +66,28 @@ Invisibly returns a one-row data frame containing the export log
   entry.
 }
 \description{
-Exports a data frame to a standardized warehouse folder structure (e.g., T drive), ensures
-correct character formatting for ID fields, applies optional compression, and logs relevant
-metadata to a centralized export log. The function enforces expected naming and structural
-conventions for OCDE’s data warehouse and supports both fact and dimension tables.
+`safe_fwrite_warehouse()` preserves the retired warehouse-specific export
+interface for compatibility with older scripts. It is deprecated and will
+be removed in a future version of cdetidy.
+
+New code should use [build_warehouse_path()] to construct the destination
+and [safe_fwrite()] to validate and write the file.
 }
 \details{
-- Constructs a file name of the form: `<table_name>_<dim_description>_<fact|dim>.csv`
-- Ensures ID columns (e.g., `cds`) are properly coerced to character
-- Automatically creates subdirectories if they don't exist
-- Overwrites an existing log entry if the `canonical_table_id` matches
+This function retains deprecated behavior, including inferring the table
+type from `user_note`, accepting metadata through `log_metadata`, and
+constructing paths within the former Warehouse Ready Files directory.
+
+No new code should depend on this interface.
+
+The legacy function:
+
+- Constructs names using
+  `<table_name>_<dim_description>_<fact|dim>.csv`.
+- Coerces selected identifier columns to character.
+- Creates missing output directories.
+- Replaces matching legacy export-log entries.
 }
 \seealso{
-[safe_fwrite()] for the general version that is not warehouse-specific.
+[safe_fwrite()], [build_warehouse_path()]
 }

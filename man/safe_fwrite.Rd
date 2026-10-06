@@ -2,82 +2,84 @@
 % Please edit documentation in R/safe_fwrite.R
 \name{safe_fwrite}
 \alias{safe_fwrite}
-\title{Safely write a dataset to CSV with metadata logging}
+\title{Safely write a data frame to CSV}
 \usage{
 safe_fwrite(
   data,
-  path = NULL,
-  char_cols = c("cds", "county_code", "district_code", "school_code"),
-  compress = FALSE,
-  n_check = 6,
-  log_metadata = NULL,
-  data_year = NULL,
-  data_source = NULL,
-  data_type = NULL,
-  data_description = NA,
-  user_note = NA,
-  table_name = NULL,
-  dim_description = NULL,
-  log_path = "export_log.csv",
-  canonical_table_id = NULL,
+  path,
+  table_name,
+  table_type,
+  data_year,
+  data_source,
+  data_category,
+  data_description,
+  user_note = NA_character_,
+  canonical_table_id = table_name,
   dimension_type = NULL,
+  char_cols = c("cds", "county_code", "district_code", "school_code"),
+  n_check = 6L,
   overwrite = FALSE,
-  write_log = FALSE
+  write_log = FALSE,
+  log_path = NULL
 )
 }
 \arguments{
-\item{data}{A data frame to export.}
+\item{data}{A nonempty data frame to export.}
 
-\item{path}{Optional. Full file path to write the CSV. If `NULL`, a path is generated automatically based on metadata.}
+\item{path}{Explicit full output path ending in `.csv` or `.csv.gz`.}
 
-\item{char_cols}{A character vector of column names to convert to character before export. Default is `c("cds", "county_code", "district_code", "school_code")`.}
+\item{table_name}{Nonempty warehouse table name used in export metadata.}
 
-\item{compress}{Logical. If `TRUE`, appends `.gz` to the filename and compresses the output. Default is `FALSE`.}
+\item{table_type}{Either `"fact"` or `"dimension"`.}
 
-\item{n_check}{Integer. Number of rows to preview after writing. Default is 6.}
+\item{data_year}{Four-digit reporting year represented by the data.}
 
-\item{log_metadata}{A named list containing metadata fields, including `data_year`, `data_source`, `data_description`, and `user_note`. If `NULL`, the function uses the corresponding individual arguments.}
+\item{data_source}{One of `"Assessment"`, `"Dashboard"`, or `"CDE"`.}
 
-\item{data_year}{The year the data represents. Required if `log_metadata` is not supplied.}
+\item{data_category}{Nonempty category within the source, such as `"CAST"`,
+`"Enrollment"`, or `"Science"`.}
 
-\item{data_source}{A short label identifying the source of the data (e.g., `"CDE"`, `"Dashboard"`, `"Assessment"`).}
+\item{data_description}{Nonempty description of the exported data.}
 
-\item{data_type}{Short label used to choose the subfolder under the data
-source (for example, `"SBAC"` or `"Absenteeism"`). Required when
-`path = NULL`. Matching is case-insensitive and accepts common synonyms.}
+\item{user_note}{Optional note about the export.}
 
-\item{data_description}{A short description of the dataset (e.g., `"Chronic absenteeism rates by subgroup"`).}
+\item{canonical_table_id}{Stable identifier for the table across reporting
+years. Defaults to `table_name`.}
 
-\item{user_note}{A note describing the nature of the export. Must include `"fact"` or `"dim"` to indicate table type.}
+\item{dimension_type}{For dimension tables, one of `"universal"`,
+`"annualized"`, or `"other"`. Must be `NULL` for fact tables.}
 
-\item{table_name}{The base name of the output table.}
+\item{char_cols}{Candidate identifier columns to convert to character when
+present in `data`.}
 
-\item{dim_description}{Optional. A short label used to describe the dimension (e.g., `"race_ethnicity"`). Appended to the file name.}
+\item{n_check}{Number of rows to read back and display after writing.}
 
-\item{log_path}{The path to the export log CSV. Default is `"export_log.csv"`.}
+\item{overwrite}{If `FALSE`, stop when `path` already exists.}
 
-\item{canonical_table_id}{Optional. A unique identifier for the exported table. Defaults to `table_name` if `NULL`.}
+\item{write_log}{If `TRUE`, update the metadata log at `log_path`.}
 
-\item{dimension_type}{Optional. One of `"universal"`, `"annualized"`, or `"other"`. Applies to dimension tables.}
-
-\item{overwrite}{Logical. If `FALSE`, stop when the output file already
-exists. Default is `FALSE`.}
-
-\item{write_log}{Logical. If `TRUE`, create or update the export metadata
-log at `log_path`. Default is `FALSE`.}
+\item{log_path}{Explicit `.csv` path for the export log. Required when
+`write_log = TRUE`.}
 }
 \value{
-Invisibly returns a one-row data frame containing the export log
-  entry.
+Invisibly returns a one-row data frame describing the export.
 }
 \description{
-Writes a data frame to a standardized T drive location (or user-defined path), enforces character
-types on specific ID columns, applies optional compression, and logs metadata to a central export log.
-Supports both fact and dimension tables and validates metadata inputs before writing.
+Writes a nonempty data frame to an explicit CSV destination, protects
+existing files from accidental replacement, preserves identifier columns
+as character, verifies the staged output, and optionally updates an export
+metadata log.
 }
 \details{
-- Validates required metadata fields and data source types.
-- Pads dimension codes as needed and enforces character types on key fields.
-- If `log_path` exists, overwrites log entry for the same `canonical_table_id`, otherwise appends a new row.
-- Automatically creates directories if needed and checks file size after writing.
+File-location rules are intentionally handled outside this function.
+Use a separate warehouse-path helper to construct standardized Assessment,
+Dashboard, or CDE destinations.
+
+
+Data are first written to a temporary file in the destination directory.
+The staged file must be nonempty and have the expected column names before
+it replaces the final destination.
+
+When overwriting, the existing file is temporarily renamed and restored if
+the staged file cannot be moved into place.
 }

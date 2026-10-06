@@ -1,278 +1,1096 @@
-#' Safely write a dataset to CSV with metadata logging
+#' Safely write a data frame to CSV
 #'
-#' Writes a data frame to a standardized T drive location (or user-defined path), enforces character
-#' types on specific ID columns, applies optional compression, and logs metadata to a central export log.
-#' Supports both fact and dimension tables and validates metadata inputs before writing.
+#' Writes a nonempty data frame to an explicit CSV destination, protects
+#' existing files from accidental replacement, preserves identifier columns
+#' as character, verifies the staged output, and optionally updates an export
+#' metadata log.
 #'
-#' @param data A data frame to export.
-#' @param path Optional. Full file path to write the CSV. If `NULL`, a path is generated automatically based on metadata.
-#' @param char_cols A character vector of column names to convert to character before export. Default is `c("cds", "county_code", "district_code", "school_code")`.
-#' @param compress Logical. If `TRUE`, appends `.gz` to the filename and compresses the output. Default is `FALSE`.
-#' @param n_check Integer. Number of rows to preview after writing. Default is 6.
-#' @param log_metadata A named list containing metadata fields, including `data_year`, `data_source`, `data_description`, and `user_note`. If `NULL`, the function uses the corresponding individual arguments.
-#' @param data_year The year the data represents. Required if `log_metadata` is not supplied.
-#' @param data_source A short label identifying the source of the data (e.g., `"CDE"`, `"Dashboard"`, `"Assessment"`).
-#' @param data_type Short label used to choose the subfolder under the data
-#'   source (for example, `"SBAC"` or `"Absenteeism"`). Required when
-#'   `path = NULL`. Matching is case-insensitive and accepts common synonyms.
-#' @param data_description A short description of the dataset (e.g., `"Chronic absenteeism rates by subgroup"`).
-#' @param user_note A note describing the nature of the export. Must include `"fact"` or `"dim"` to indicate table type.
-#' @param table_name The base name of the output table.
-#' @param dim_description Optional. A short label used to describe the dimension (e.g., `"race_ethnicity"`). Appended to the file name.
-#' @param log_path The path to the export log CSV. Default is `"export_log.csv"`.
-#' @param canonical_table_id Optional. A unique identifier for the exported table. Defaults to `table_name` if `NULL`.
-#' @param dimension_type Optional. One of `"universal"`, `"annualized"`, or `"other"`. Applies to dimension tables.
-#' @param overwrite Logical. If `FALSE`, stop when the output file already
-#'   exists. Default is `FALSE`.
-#' @param write_log Logical. If `TRUE`, create or update the export metadata
-#'   log at `log_path`. Default is `FALSE`.
+#' File-location rules are intentionally handled outside this function.
+#' Use a separate warehouse-path helper to construct standardized Assessment,
+#' Dashboard, or CDE destinations.
 #'
-#' @return Invisibly returns a one-row data frame containing the export log
-#'   entry.
+#' @param data A nonempty data frame to export.
+#' @param path Explicit full output path ending in `.csv` or `.csv.gz`.
+#' @param table_name Nonempty warehouse table name used in export metadata.
+#' @param table_type Either `"fact"` or `"dimension"`.
+#' @param data_year Four-digit reporting year represented by the data.
+#' @param data_source One of `"Assessment"`, `"Dashboard"`, or `"CDE"`.
+#' @param data_category Nonempty category within the source, such as `"CAST"`,
+#'   `"Enrollment"`, or `"Science"`.
+#' @param data_description Nonempty description of the exported data.
+#' @param user_note Optional note about the export.
+#' @param canonical_table_id Stable identifier for the table across reporting
+#'   years. Defaults to `table_name`.
+#' @param dimension_type For dimension tables, one of `"universal"`,
+#'   `"annualized"`, or `"other"`. Must be `NULL` for fact tables.
+#' @param char_cols Candidate identifier columns to convert to character when
+#'   present in `data`.
+#' @param n_check Number of rows to read back and display after writing.
+#' @param overwrite If `FALSE`, stop when `path` already exists.
+#' @param write_log If `TRUE`, update the metadata log at `log_path`.
+#' @param log_path Explicit `.csv` path for the export log. Required when
+#'   `write_log = TRUE`.
+#'
+#' @return Invisibly returns a one-row data frame describing the export.
 #'
 #' @details
-#' - Validates required metadata fields and data source types.
-#' - Pads dimension codes as needed and enforces character types on key fields.
-#' - If `log_path` exists, overwrites log entry for the same `canonical_table_id`, otherwise appends a new row.
-#' - Automatically creates directories if needed and checks file size after writing.
+#' Data are first written to a temporary file in the destination directory.
+#' The staged file must be nonempty and have the expected column names before
+#' it replaces the final destination.
+#'
+#' When overwriting, the existing file is temporarily renamed and restored if
+#' the staged file cannot be moved into place.
 #'
 #' @export
 
 safe_fwrite <- function(
-    data, path = NULL,
-    char_cols = c("cds","county_code","district_code","school_code"),
-    compress = FALSE,
-    n_check = 6,
-    log_metadata = NULL,
-    data_year = NULL,
-    data_source = NULL,
-    data_type = NULL,         # validated below
-    data_description = NA,
-    user_note = NA,
-    table_name = NULL,
-    dim_description = NULL,
-    log_path = "export_log.csv",
-    canonical_table_id = NULL,
-    dimension_type = NULL,
-    overwrite = FALSE,
-    write_log = FALSE) {
-  
-  norm_token <- function(x) gsub("[^a-z0-9]+", "", tolower(trimws(as.character(x))))
-  
-  title_underscore <- function(x) gsub("\\s+", "_", tools::toTitleCase(gsub("_", " ", x)))
-  
-  # --- catalogs & resolver ---
-  catalog <- list(
-    Assessment = list(
-      values = c("SBAC","CAST","ELPAC", "dim"),
-      syns = list(
-        SBAC  = c("sbac","smarter","smarterbalanced"),
-        CAST  = c("cast","science"),
-        ELPAC = c("elpac","englishlanguageproficiency","elpa"),
-        dim = c("dim", "dimension"))),
-    CDE = list(
-      values = c("Absenteeism","Enrollment","Discipline","EL","Grad_Dropout","Post_Secondary", 
-                 "Staff", "Alternative_Ed", "Special_Education", "dim"),
-      syns = list(
-        Absenteeism    = c("absenteeism","chronic","chronicabsenteeism"),
-        Enrollment     = c("enrollment","enrol"),
-        Discipline     = c("discipline","suspension","suspensions"),
-        EL             = c("el","englishlearner","ell","englishlearners"),
-        Grad_Dropout   = c("graddropout","graduation","grad","dropout","cohort"),
-        Post_Secondary = c("postsecondary","post_secondary","collegecareer","cci","collegeandcareer"),
-        Staff = c("staff", "certificated", "classified", "tamo", "hire"),
-        Alternative_Ed = c("alted", "alt", "juvenile", "community schools", "juvenile court"),
-        Special_Education = c("special_ed", "sped", "special_education"),
-        dim = c("dim", "dimension"))),
-    Dashboard = list(
-      values = c("Achievement", "Engagement", "Climate", "Broad_Course", "Info_Only", "dim"),
-      syns = list(
-        Achievement = c("ela", "math", "elpi", "academics"),
-        Engagement = c("grad", "grad_rate", "gr", "absenteeism", "ca", "chronic"),
-        Climate = c("suspension","sus", "susp"),
-        Broad_Course = c("cci", "college_and_career", "college", "career"),
-        Info_Only = c("science", "sci", "growth_rate", "growth"),
-        dim = c("dim", "dimension"))))
-  
-  resolve_type <- function(ds_label, dt_input) {
-    catg <- catalog[[ds_label]]
-    if (is.null(catg)) stop("❌ Unsupported data_source catalog: ", ds_label)
-    tok <- norm_token(dt_input)
-    direct <- match(tok, norm_token(catg$values))
-    if (!is.na(direct)) return(catg$values[direct])
-    for (v in names(catg$syns)) if (tok %in% norm_token(catg$syns[[v]])) return(v)
-    stop("❌ For data_source=", ds_label,
-         " the `data_type` must be one of: ",
-         paste(catg$values, collapse=", "),
-         " (case-insensitive; synonyms accepted).")
-  }
-  
-  if (!is.data.frame(data)) {
-    stop("`data` must be a data frame.", call. = FALSE)
-  }
-  
-  if (length(n_check) != 1L || is.na(n_check) || n_check < 0L) {
-    stop("`n_check` must be one nonnegative number.", call. = FALSE)
-  }
-  n_check <- as.integer(n_check)
-  
-  # --- build/validate metadata ---
-  if (is.null(log_metadata)) {
-    if (is.null(data_source)) stop("❌ Provide `data_source` (or a `log_metadata` list).")
-    log_metadata <- list(
-      data_year       = data_year,        # optional, for audit only
-      data_source     = data_source,
-      data_description= data_description,
-      user_note       = user_note)
-  }
-  
-  if (!is.null(log_metadata$data_year)) {
-    data_year <- log_metadata$data_year
-  }
-  if (!is.null(log_metadata$data_source)) {
-    data_source <- log_metadata$data_source
-  }
-  if (!is.null(log_metadata$data_description)) {
-    data_description <- log_metadata$data_description
-  }
-  if (!is.null(log_metadata$user_note)) {
-    user_note <- log_metadata$user_note
-  }
-  
-  if (isTRUE(write_log) &&
-      (is.null(data_description) ||
-       is.na(data_description) ||
-       data_description == ""))
-    stop("❌ Please provide `data_description`.")
-  
-  ds_label <- (function(x){
-    tok <- norm_token(x)
-    out <- c(assessment="Assessment", cde="CDE", dashboard="Dashboard")[tok]
-    if (is.na(out)) stop("❌ `data_source` must be one of: Assessment, CDE, Dashboard.")
-    out
-  })(data_source)
-  
-  if (is.null(table_name)) stop("❌ Please supply `table_name`.")
-  if (is.null(user_note) || !grepl("\\b(fact|dim)\\b", user_note, ignore.case = TRUE))
-    stop("❌ `user_note` must include 'fact' or 'dim'.")
-  table_type <- tolower(stringr::str_extract(user_note, "\\b(fact|dim)\\b"))
-  if (is.na(table_type)) stop("❌ Could not parse table type from `user_note`.")
-  if (!is.null(dim_description)) dim_description <- janitor::make_clean_names(dim_description)
-  
-  final_table_name <- paste0(
+    data,
+    path,
     table_name,
-    if (!is.null(dim_description)) paste0("_", dim_description),
-    "_", table_type)
-  
-  # --- auto path: T:/Data Warehouse/{DataSource}/{DataType}/ ---
-  if (is.null(path)) {
-    if (is.null(data_type)) stop("❌ Please provide `data_type` when `path` is NULL.")
-    type_label  <- resolve_type(ds_label, data_type)
-    type_folder <- title_underscore(type_label)
-    base_dir    <- "T:/Data Warehouse"
-    path <- file.path(base_dir, ds_label, type_folder, paste0(final_table_name, ".csv"))
-    dir.create(dirname(path), recursive = TRUE, showWarnings = FALSE)
-  }
-  if (compress && !grepl("\\.gz$", path)) path <- paste0(path, ".gz")
-  
-  if (file.exists(path) && !isTRUE(overwrite)) {
-    stop(
-      "Output file already exists: ",
-      path,
-      ". Use `overwrite = TRUE` to replace it.",
-      call. = FALSE)
-  }
-  
-  dir.create(dirname(path), recursive = TRUE, showWarnings = FALSE)
-  
-  # --- enforce character on code columns ---
-  default_char_cols <- if (table_type == "dim")
-    c("cds","county_code","district_code","school_code") else c("cds")
-  target_char_cols <- intersect(unique(c(char_cols, default_char_cols)), names(data))
-  if (length(target_char_cols))
-    data <- dplyr::mutate(data, dplyr::across(dplyr::all_of(target_char_cols), as.character))
-  
-  # --- write + quick preview ---
-  data.table::fwrite(data, path)
-  message("✅ File written: ", path)
-  if (n_check > 0L) {
-    preview <- if (length(target_char_cols) > 0L) {
-      data.table::fread(
-        path,
-        nrows = n_check,
-        colClasses = list(character = target_char_cols))
-    } else {
-      data.table::fread(path, nrows = n_check)
+    table_type,
+    data_year,
+    data_source,
+    data_category,
+    data_description,
+    user_note = NA_character_,
+    canonical_table_id = table_name,
+    dimension_type = NULL,
+    char_cols = c(
+      "cds",
+      "county_code",
+      "district_code",
+      "school_code"
+    ),
+    n_check = 6L,
+    overwrite = FALSE,
+    write_log = FALSE,
+    log_path = NULL) {
+
+  # ---------------------------------------
+  # Internal validation helpers
+  # ---------------------------------------
+
+  is_scalar_string <- function(value,
+                               allow_na = FALSE) {
+    if (length(value) != 1L ||
+        !is.character(value)) {
+      return(FALSE)
     }
-    print(preview)
+
+    if (is.na(value)) {
+      return(isTRUE(allow_na))
+    }
+
+    nzchar(
+      trimws(value)
+    )
   }
-  
-  # --- logging ---
-  fi <- file.info(path)
-  if (is.na(fi$size)) stop("File does not exist or is unreadable: ", path)
-  
+
+  validate_logical <- function(value,
+                               argument) {
+    if (length(value) != 1L ||
+        is.na(value) ||
+        !is.logical(value)) {
+      stop(
+        paste0(
+          "`",
+          argument,
+          "` must be TRUE or FALSE."
+        ),
+        call. = FALSE
+      )
+    }
+  }
+
+  normalize_choice <- function(value,
+                               choices,
+                               argument) {
+    if (!is_scalar_string(value)) {
+      stop(
+        paste0(
+          "`",
+          argument,
+          "` must be one nonempty character value."
+        ),
+        call. = FALSE
+      )
+    }
+
+    matched_position <- match(
+      tolower(
+        trimws(value)
+      ),
+      tolower(
+        choices
+      )
+    )
+
+    if (is.na(
+      matched_position
+    )) {
+      stop(
+        paste0(
+          "`",
+          argument,
+          "` must be one of: ",
+          paste(
+            choices,
+            collapse = ", "
+          ),
+          "."
+        ),
+        call. = FALSE
+      )
+    }
+
+    choices[[matched_position]]
+  }
+
+  replace_file <- function(staged_path,
+                           final_path,
+                           allow_overwrite) {
+    backup_path <- NULL
+
+    if (file.exists(final_path)) {
+      if (!isTRUE(
+        allow_overwrite
+      )) {
+        stop(
+          paste0(
+            "Output file already exists: ",
+            final_path,
+            ". Set `overwrite = TRUE` to replace it."
+          ),
+          call. = FALSE
+        )
+      }
+
+      backup_path <- tempfile(
+        pattern = paste0(
+          ".",
+          basename(final_path),
+          "_backup_"
+        ),
+        tmpdir = dirname(
+          final_path
+        )
+      )
+
+      backup_created <- file.rename(
+        final_path,
+        backup_path
+      )
+
+      if (!isTRUE(
+        backup_created
+      )) {
+        stop(
+          paste0(
+            "Could not create a recoverable backup of the existing file: ",
+            final_path
+          ),
+          call. = FALSE
+        )
+      }
+    }
+
+    replacement_succeeded <- file.rename(
+      staged_path,
+      final_path
+    )
+
+    if (!isTRUE(
+      replacement_succeeded
+    )) {
+      if (!is.null(backup_path) &&
+          file.exists(backup_path)) {
+        file.rename(
+          backup_path,
+          final_path
+        )
+      }
+
+      stop(
+        paste0(
+          "Could not move the staged file to its final destination: ",
+          final_path
+        ),
+        call. = FALSE
+      )
+    }
+
+    if (!is.null(backup_path) &&
+        file.exists(backup_path)) {
+      unlink(
+        backup_path
+      )
+    }
+
+    invisible(
+      final_path
+    )
+  }
+
+  read_export_file <- function(file_path,
+                               nrows,
+                               character_columns = character()) {
+    compressed_file <- grepl(
+      "\\.csv\\.gz$",
+      file_path,
+      ignore.case = TRUE
+    )
+
+    if (!compressed_file) {
+      fread_arguments <- list(
+        file = file_path,
+        nrows = nrows,
+        check.names = FALSE,
+        showProgress = FALSE
+      )
+
+      if (length(
+        character_columns
+      ) > 0L) {
+        fread_arguments$colClasses <- list(
+          character = character_columns
+        )
+      }
+
+      return(
+        do.call(
+          data.table::fread,
+          fread_arguments
+        )
+      )
+    }
+
+    connection <- gzfile(
+      file_path,
+      open = "rt"
+    )
+
+    on.exit(
+      close(
+        connection
+      ),
+      add = TRUE
+    )
+
+    col_classes <- if (length(
+      character_columns
+    ) > 0L) {
+      stats::setNames(
+        rep(
+          "character",
+          length(
+            character_columns
+          )
+        ),
+        character_columns
+      )
+    } else {
+      NA
+    }
+
+    utils::read.csv(
+      connection,
+      nrows = nrows,
+      check.names = FALSE,
+      stringsAsFactors = FALSE,
+      colClasses = col_classes
+    )
+  }
+
+  # ---------------------------------------
+  # Validate data
+  # ---------------------------------------
+
+  if (!is.data.frame(data)) {
+    stop(
+      "`data` must be a data frame.",
+      call. = FALSE
+    )
+  }
+
+  if (nrow(data) == 0L) {
+    stop(
+      "`data` must contain at least one row.",
+      call. = FALSE
+    )
+  }
+
+  if (ncol(data) == 0L) {
+    stop(
+      "`data` must contain at least one column.",
+      call. = FALSE
+    )
+  }
+
+  if (anyDuplicated(
+    names(data)
+  ) > 0L) {
+    duplicate_columns <- unique(
+      names(data)[
+        duplicated(
+          names(data)
+        )
+      ]
+    )
+
+    stop(
+      paste0(
+        "`data` contains duplicate column name(s): ",
+        paste(
+          duplicate_columns,
+          collapse = ", "
+        ),
+        "."
+      ),
+      call. = FALSE
+    )
+  }
+
+  # ---------------------------------------
+  # Validate path and overwrite settings
+  # ---------------------------------------
+
+  if (!is_scalar_string(path)) {
+    stop(
+      "`path` must be one explicit, nonempty file path.",
+      call. = FALSE
+    )
+  }
+
+  path <- trimws(
+    path
+  )
+
+  if (!grepl(
+    "\\.csv(?:\\.gz)?$",
+    path,
+    ignore.case = TRUE
+  )) {
+    stop(
+      "`path` must end in `.csv` or `.csv.gz`.",
+      call. = FALSE
+    )
+  }
+
+  validate_logical(
+    overwrite,
+    "overwrite"
+  )
+
+  validate_logical(
+    write_log,
+    "write_log"
+  )
+
+  if (file.exists(path) &&
+      !isTRUE(overwrite)) {
+    stop(
+      paste0(
+        "Output file already exists: ",
+        path,
+        ". Set `overwrite = TRUE` to replace it."
+      ),
+      call. = FALSE
+    )
+  }
+
+  # ---------------------------------------
+  # Validate table metadata
+  # ---------------------------------------
+
+  if (!is_scalar_string(
+    table_name
+  )) {
+    stop(
+      "`table_name` must be one nonempty character value.",
+      call. = FALSE
+    )
+  }
+
+  table_name <- trimws(
+    table_name
+  )
+
+  if (!grepl(
+    "^[A-Za-z0-9_]+$",
+    table_name
+  )) {
+    stop(
+      paste0(
+        "`table_name` may contain only letters, numbers, ",
+        "and underscores."
+      ),
+      call. = FALSE
+    )
+  }
+
+  table_type <- normalize_choice(
+    table_type,
+    c(
+      "fact",
+      "dimension"
+    ),
+    "table_type"
+  )
+
+  if (length(data_year) != 1L ||
+      is.na(data_year) ||
+      !is.numeric(data_year) ||
+      data_year != as.integer(data_year) ||
+      data_year < 1900L ||
+      data_year > 9999L) {
+    stop(
+      "`data_year` must be one four-digit reporting year.",
+      call. = FALSE
+    )
+  }
+
+  data_year <- as.integer(
+    data_year
+  )
+
+  data_source <- normalize_choice(
+    data_source,
+    c(
+      "Assessment",
+      "Dashboard",
+      "CDE"
+    ),
+    "data_source"
+  )
+
+  if (!is_scalar_string(
+    data_category
+  )) {
+    stop(
+      "`data_category` must be one nonempty character value.",
+      call. = FALSE
+    )
+  }
+
+  data_category <- trimws(
+    data_category
+  )
+
+  if (!is_scalar_string(
+    data_description
+  )) {
+    stop(
+      "`data_description` must be one nonempty character value.",
+      call. = FALSE
+    )
+  }
+
+  data_description <- trimws(
+    data_description
+  )
+
+  if (is.null(user_note) ||
+      (
+        length(user_note) == 1L &&
+        is.character(user_note) &&
+        is.na(user_note)
+      )) {
+    user_note <- NA_character_
+  } else if (!is_scalar_string(
+    user_note
+  )) {
+    stop(
+      paste0(
+        "`user_note` must be one nonempty character value, ",
+        "`NA_character_`, or `NULL`."
+      ),
+      call. = FALSE
+    )
+  } else {
+    user_note <- trimws(
+      user_note
+    )
+  }
+
   if (is.null(canonical_table_id)) {
     canonical_table_id <- table_name
   }
-  if (is.null(dimension_type)) {
+
+  if (!is_scalar_string(
+    canonical_table_id
+  )) {
+    stop(
+      "`canonical_table_id` must be one nonempty character value.",
+      call. = FALSE
+    )
+  }
+
+  canonical_table_id <- trimws(
+    canonical_table_id
+  )
+
+  valid_dimension_types <- c(
+    "universal",
+    "annualized",
+    "other"
+  )
+
+  if (identical(
+    table_type,
+    "dimension"
+  )) {
+    if (is.null(dimension_type) ||
+        length(dimension_type) != 1L ||
+        !is.character(dimension_type) ||
+        is.na(dimension_type) ||
+        !nzchar(trimws(dimension_type))) {
+      stop(
+        paste0(
+          "`dimension_type` must be one of: ",
+          paste(
+            valid_dimension_types,
+            collapse = ", "
+          ),
+          "."
+        ),
+        call. = FALSE
+      )
+    }
+
+    dimension_type <- normalize_choice(
+      dimension_type,
+      valid_dimension_types,
+      "dimension_type"
+    )
+  } else {
+    if (!is.null(dimension_type) &&
+        !(
+          length(dimension_type) == 1L &&
+          is.character(dimension_type) &&
+          is.na(dimension_type)
+        )) {
+      stop(
+        paste0(
+          "`dimension_type` must be `NULL` for fact tables."
+        ),
+        call. = FALSE
+      )
+    }
+
     dimension_type <- NA_character_
   }
-  valid_dimension_types <- c("universal","annualized","other")
-  if (!is.na(dimension_type) && !tolower(dimension_type) %in% valid_dimension_types)
-    stop("❌ `dimension_type` must be one of: ", paste(valid_dimension_types, collapse = ", "))
-  dimension_type <- if (is.na(dimension_type)) NA_character_ else tolower(dimension_type)
-  
-  log_entry <- data.frame(
-    timestamp        = format(Sys.time(), "%Y-%m-%d %H:%M:%S"),
-    file_name        = basename(path),
-    file_path        = normalizePath(path),
-    file_size_MB     = round(fi$size / 1e6, 2),
-    canonical_table_id = canonical_table_id,
-    dimension_type   = dimension_type,
-    n_rows           = nrow(data),
-    n_cols           = ncol(data),
-    data_year        = if (is.null(data_year)) NA else data_year,
-    data_source      = ds_label,
-    table_type       = table_type,
-    data_description = data_description,
-    dim_description  = if (is.null(dim_description)) NA else dim_description,
-    user_note        = user_note,
-    user             = Sys.info()[["user"]],
-    stringsAsFactors = FALSE)
-  
-  if (isTRUE(write_log)) {
-    dir.create(dirname(log_path), recursive = TRUE, showWarnings = FALSE)
-    
-    if (file.exists(log_path)) {
-      existing_log <- read.csv(log_path, stringsAsFactors = FALSE)
-      match_idx <- which(
-        existing_log$canonical_table_id == canonical_table_id)
-      
-      if (length(match_idx)) {
-        existing_log[match_idx[1], ] <- log_entry
-        write.csv(existing_log, log_path, row.names = FALSE)
-        message("🔁 Existing log entry overwritten for: ", log_entry$file_name)
-      } else {
-        write.table(
-          log_entry,
-          log_path,
-          append = TRUE,
-          sep = ",",
-          row.names = FALSE,
-          col.names = FALSE)
-        message("📝 Log entry appended to: ", log_entry$file_name)
-      }
-    } else {
-      write.table(
-        log_entry,
+
+  # ---------------------------------------
+  # Validate character-column handling
+  # ---------------------------------------
+
+  if (is.null(char_cols)) {
+    char_cols <- character()
+  }
+
+  if (!is.character(char_cols) ||
+      anyNA(char_cols) ||
+      any(!nzchar(
+        trimws(char_cols)
+      ))) {
+    stop(
+      paste0(
+        "`char_cols` must be a character vector of nonempty ",
+        "column names or `NULL`."
+      ),
+      call. = FALSE
+    )
+  }
+
+  char_cols <- trimws(
+    char_cols
+  )
+
+  if (anyDuplicated(
+    char_cols
+  ) > 0L) {
+    stop(
+      "`char_cols` must not contain duplicate column names.",
+      call. = FALSE
+    )
+  }
+
+  target_char_cols <- intersect(
+    char_cols,
+    names(data)
+  )
+
+  # ---------------------------------------
+  # Validate preview and logging settings
+  # ---------------------------------------
+
+  if (length(n_check) != 1L ||
+      is.na(n_check) ||
+      !is.numeric(n_check) ||
+      n_check != as.integer(n_check) ||
+      n_check < 0L) {
+    stop(
+      "`n_check` must be one nonnegative whole number.",
+      call. = FALSE
+    )
+  }
+
+  n_check <- as.integer(
+    n_check
+  )
+
+  if (isTRUE(
+    write_log
+  )) {
+    if (!is_scalar_string(
+      log_path
+    )) {
+      stop(
+        paste0(
+          "`log_path` must be an explicit, nonempty file path ",
+          "when `write_log = TRUE`."
+        ),
+        call. = FALSE
+      )
+    }
+
+    log_path <- trimws(
+      log_path
+    )
+
+    if (!grepl(
+      "\\.csv$",
+      log_path,
+      ignore.case = TRUE
+    )) {
+      stop(
+        "`log_path` must end in `.csv`.",
+        call. = FALSE
+      )
+    }
+
+    if (identical(
+      normalizePath(
+        path,
+        mustWork = FALSE
+      ),
+      normalizePath(
         log_path,
-        append = FALSE,
-        sep = ",",
-        row.names = FALSE,
-        col.names = TRUE)
-      message("📄 New log created: ", log_path)
+        mustWork = FALSE
+      )
+    )) {
+      stop(
+        "`path` and `log_path` must be different files.",
+        call. = FALSE
+      )
     }
   }
-  
-  invisible(log_entry)
+
+  expected_log_columns <- c(
+    "timestamp",
+    "file_name",
+    "file_path",
+    "file_size_mb",
+    "canonical_table_id",
+    "dimension_type",
+    "n_rows",
+    "n_cols",
+    "data_year",
+    "data_source",
+    "data_category",
+    "table_name",
+    "table_type",
+    "data_description",
+    "user_note",
+    "overwritten",
+    "user"
+  )
+
+  existing_log <- NULL
+
+  if (isTRUE(write_log) &&
+      file.exists(log_path)) {
+    existing_log <- data.table::fread(
+      log_path,
+      sep = ",",
+      showProgress = FALSE
+    )
+
+    missing_log_columns <- setdiff(
+      expected_log_columns,
+      names(existing_log)
+    )
+
+    unexpected_log_columns <- setdiff(
+      names(existing_log),
+      expected_log_columns
+    )
+
+    if (length(missing_log_columns) > 0L ||
+        length(unexpected_log_columns) > 0L) {
+      stop(
+        paste0(
+          "The existing export log has an incompatible schema.",
+          "\nMissing: ",
+          if (length(missing_log_columns) == 0L) {
+            "none"
+          } else {
+            paste(
+              missing_log_columns,
+              collapse = ", "
+            )
+          },
+          "\nUnexpected: ",
+          if (length(unexpected_log_columns) == 0L) {
+            "none"
+          } else {
+            paste(
+              unexpected_log_columns,
+              collapse = ", "
+            )
+          }
+        ),
+        call. = FALSE
+      )
+    }
+
+    data.table::setcolorder(
+      existing_log,
+      expected_log_columns
+    )
+  }
+
+  # ---------------------------------------
+  # Prepare export data
+  # ---------------------------------------
+
+  export_data <- data.table::copy(
+    data.table::as.data.table(
+      data
+    )
+  )
+
+  for (column in target_char_cols) {
+    data.table::set(
+      export_data,
+      j = column,
+      value = as.character(
+        export_data[[column]]
+      )
+    )
+  }
+
+  # ---------------------------------------
+  # Create destination and staged path
+  # ---------------------------------------
+
+  destination_directory <- dirname(
+    path
+  )
+
+  if (!dir.exists(
+    destination_directory
+  )) {
+    directory_created <- dir.create(
+      destination_directory,
+      recursive = TRUE,
+      showWarnings = FALSE
+    )
+
+    if (!isTRUE(
+      directory_created
+    ) &&
+    !dir.exists(
+      destination_directory
+    )) {
+      stop(
+        paste0(
+          "Could not create destination directory: ",
+          destination_directory
+        ),
+        call. = FALSE
+      )
+    }
+  }
+
+  staged_extension <- if (grepl(
+    "\\.csv\\.gz$",
+    path,
+    ignore.case = TRUE
+  )) {
+    ".csv.gz"
+  } else {
+    ".csv"
+  }
+
+  staged_path <- tempfile(
+    pattern = paste0(
+      ".",
+      basename(path),
+      "_staged_"
+    ),
+    tmpdir = destination_directory,
+    fileext = staged_extension
+  )
+
+  on.exit(
+    {
+      if (file.exists(
+        staged_path
+      )) {
+        unlink(
+          staged_path
+        )
+      }
+    },
+    add = TRUE
+  )
+
+  # ---------------------------------------
+  # Write and validate staged file
+  # ---------------------------------------
+
+  data.table::fwrite(
+    export_data,
+    staged_path
+  )
+
+  staged_info <- file.info(
+    staged_path
+  )
+
+  if (!file.exists(staged_path) ||
+      is.na(staged_info$size) ||
+      staged_info$size <= 0) {
+    stop(
+      "The staged export file is missing or empty.",
+      call. = FALSE
+    )
+  }
+
+  staged_header <- read_export_file(
+    file_path = staged_path,
+    nrows = 0L
+  )
+
+  if (!identical(
+    names(staged_header),
+    names(export_data)
+  )) {
+    stop(
+      paste0(
+        "The staged export header does not match the source data.",
+        "\nExpected: ",
+        paste(
+          names(export_data),
+          collapse = ", "
+        ),
+        "\nFound: ",
+        paste(
+          names(staged_header),
+          collapse = ", "
+        )
+      ),
+      call. = FALSE
+    )
+  }
+
+  # ---------------------------------------
+  # Commit staged file
+  # ---------------------------------------
+
+  file_existed <- file.exists(
+    path
+  )
+
+  replace_file(
+    staged_path = staged_path,
+    final_path = path,
+    allow_overwrite = overwrite
+  )
+
+  final_info <- file.info(
+    path
+  )
+
+  if (!file.exists(path) ||
+      is.na(final_info$size) ||
+      final_info$size <= 0) {
+    stop(
+      paste0(
+        "The final export file is missing or empty: ",
+        path
+      ),
+      call. = FALSE
+    )
+  }
+
+  message(
+    "File written: ",
+    path
+  )
+
+  # ---------------------------------------
+  # Read and display preview
+  # ---------------------------------------
+
+  if (n_check > 0L) {
+    preview <- read_export_file(
+      file_path = path,
+      nrows = n_check,
+      character_columns = target_char_cols
+    )
+
+    print(
+      preview
+    )
+  }
+
+  # ---------------------------------------
+  # Construct export record
+  # ---------------------------------------
+
+  log_entry <- data.frame(
+    timestamp = format(
+      Sys.time(),
+      "%Y-%m-%d %H:%M:%S"
+    ),
+    file_name = basename(
+      path
+    ),
+    file_path = normalizePath(
+      path,
+      mustWork = TRUE
+    ),
+    file_size_mb = round(
+      final_info$size / 1e6,
+      2
+    ),
+    canonical_table_id = canonical_table_id,
+    dimension_type = dimension_type,
+    n_rows = nrow(
+      export_data
+    ),
+    n_cols = ncol(
+      export_data
+    ),
+    data_year = data_year,
+    data_source = data_source,
+    data_category = data_category,
+    table_name = table_name,
+    table_type = table_type,
+    data_description = data_description,
+    user_note = user_note,
+    overwritten = file_existed,
+    user = unname(
+      Sys.info()[["user"]]
+    ),
+    stringsAsFactors = FALSE
+  )
+
+  # ---------------------------------------
+  # Optionally update export log
+  # ---------------------------------------
+
+  if (isTRUE(
+    write_log
+  )) {
+    log_directory <- dirname(
+      log_path
+    )
+
+    if (!dir.exists(
+      log_directory
+    )) {
+      log_directory_created <- dir.create(
+        log_directory,
+        recursive = TRUE,
+        showWarnings = FALSE
+      )
+
+      if (!isTRUE(
+        log_directory_created
+      ) &&
+      !dir.exists(
+        log_directory
+      )) {
+        stop(
+          paste0(
+            "Could not create export-log directory: ",
+            log_directory
+          ),
+          call. = FALSE
+        )
+      }
+    }
+
+    if (!is.null(existing_log)) {
+      existing_log <- existing_log[
+        !(
+          canonical_table_id ==
+            log_entry$canonical_table_id &
+            data_year ==
+            log_entry$data_year
+        )
+      ]
+
+      updated_log <- data.table::rbindlist(
+        list(
+          existing_log,
+          data.table::as.data.table(
+            log_entry
+          )
+        ),
+        use.names = TRUE,
+        fill = FALSE
+      )
+    } else {
+      updated_log <- data.table::as.data.table(
+        log_entry
+      )
+    }
+
+    staged_log_path <- tempfile(
+      pattern = paste0(
+        ".",
+        basename(log_path),
+        "_staged_"
+      ),
+      tmpdir = log_directory,
+      fileext = ".csv"
+    )
+
+    on.exit(
+      {
+        if (file.exists(
+          staged_log_path
+        )) {
+          unlink(
+            staged_log_path
+          )
+        }
+      },
+      add = TRUE
+    )
+
+    data.table::fwrite(
+      updated_log,
+      staged_log_path
+    )
+
+    replace_file(
+      staged_path = staged_log_path,
+      final_path = log_path,
+      allow_overwrite = TRUE
+    )
+
+    message(
+      "Export log updated: ",
+      log_path
+    )
+  }
+
+  invisible(
+    log_entry
+  )
 }

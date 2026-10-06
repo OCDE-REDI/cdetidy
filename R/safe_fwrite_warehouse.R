@@ -1,9 +1,27 @@
-#' Safely write a warehouse-ready CSV file with metadata logging
+#' Legacy warehouse CSV export
 #'
-#' Exports a data frame to a standardized warehouse folder structure (e.g., T drive), ensures
-#' correct character formatting for ID fields, applies optional compression, and logs relevant
-#' metadata to a centralized export log. The function enforces expected naming and structural
-#' conventions for OCDE’s data warehouse and supports both fact and dimension tables.
+#' @description
+#' `safe_fwrite_warehouse()` preserves the retired warehouse-specific export
+#' interface for compatibility with older scripts. It is deprecated and will
+#' be removed in a future version of cdetidy.
+#'
+#' New code should use [build_warehouse_path()] to construct the destination
+#' and [safe_fwrite()] to validate and write the file.
+#'
+#' @details
+#' This function retains deprecated behavior, including inferring the table
+#' type from `user_note`, accepting metadata through `log_metadata`, and
+#' constructing paths within the former Warehouse Ready Files directory.
+#'
+#' No new code should depend on this interface.
+#'
+#' The legacy function:
+#'
+#' - Constructs names using
+#'   `<table_name>_<dim_description>_<fact|dim>.csv`.
+#' - Coerces selected identifier columns to character.
+#' - Creates missing output directories.
+#' - Replaces matching legacy export-log entries.
 #'
 #' @param data A data frame to be exported.
 #' @param path Optional. A full file path to write the CSV file. If `NULL`, a default path is constructed using metadata fields.
@@ -28,13 +46,7 @@
 #' @return Invisibly returns a one-row data frame containing the export log
 #'   entry.
 #'
-#' @details
-#' - Constructs a file name of the form: `<table_name>_<dim_description>_<fact|dim>.csv`
-#' - Ensures ID columns (e.g., `cds`) are properly coerced to character
-#' - Automatically creates subdirectories if they don't exist
-#' - Overwrites an existing log entry if the `canonical_table_id` matches
-#'
-#' @seealso [safe_fwrite()] for the general version that is not warehouse-specific.
+#' @seealso [safe_fwrite()], [build_warehouse_path()]
 #'
 #' @export
 
@@ -54,16 +66,27 @@ safe_fwrite_warehouse <- function(data, path = NULL,
                                   dimension_type = NULL,
                                   overwrite = FALSE,
                                   write_log = FALSE) {
-  
+
+  .Deprecated(
+    new = "safe_fwrite",
+    package = "cdetidy",
+    msg = paste0(
+      "`safe_fwrite_warehouse()` is deprecated and will be removed ",
+      "in a future version of cdetidy. Use `build_warehouse_path()` ",
+      "to construct the destination and `safe_fwrite()` to validate ",
+      "and write the file."
+    )
+  )
+
   if (!is.data.frame(data)) {
     stop("`data` must be a data frame.", call. = FALSE)
   }
-  
+
   if (length(n_check) != 1L || is.na(n_check) || n_check < 0L) {
     stop("`n_check` must be one nonnegative number.", call. = FALSE)
   }
   n_check <- as.integer(n_check)
-  
+
   # Allow shorthand metadata if log_metadata not provided
   if (is.null(log_metadata)) {
     if (is.null(data_year) || is.null(data_source)) {
@@ -76,7 +99,7 @@ safe_fwrite_warehouse <- function(data, path = NULL,
       user_note = user_note
     )
   }
-  
+
   if (!is.null(log_metadata$data_year)) {
     data_year <- log_metadata$data_year
   }
@@ -89,19 +112,19 @@ safe_fwrite_warehouse <- function(data, path = NULL,
   if (!is.null(log_metadata$user_note)) {
     user_note <- log_metadata$user_note
   }
-  
+
   if (is.null(path)) {
     required_values <- list(
       data_year = data_year,
       data_source = data_source,
       table_name = table_name)
-    
+
     missing_args <- names(required_values)[
       vapply(
         required_values,
         function(x) is.null(x) || length(x) == 0L || all(is.na(x)),
         logical(1))]
-    
+
     if (length(missing_args) > 0L) {
       stop(
         "❌ To auto-generate the path, you must supply: ",
@@ -110,7 +133,7 @@ safe_fwrite_warehouse <- function(data, path = NULL,
         call. = FALSE)
     }
   }
-  
+
   # Validate that data_description is provided
   if (isTRUE(write_log) &&
       (is.null(data_description) ||
@@ -118,7 +141,7 @@ safe_fwrite_warehouse <- function(data, path = NULL,
        data_description == "")) {
     stop("❌ Please provide a brief description of what's in this data file using `data_description`.")
   }
-  
+
   # Validate required metadata fields
   required_fields <- c("data_year", "data_source")
   missing_fields <- setdiff(required_fields, names(log_metadata))
@@ -126,48 +149,48 @@ safe_fwrite_warehouse <- function(data, path = NULL,
     stop("❌ Missing required `log_metadata` fields: ",
          paste(missing_fields, collapse = ", "))
   }
-  
+
   # Validate and standardize data_source values
   allowed_sources <- c("Assessment", "CDE", "Dashboard")
   input_source <- tolower(data_source)
   matched_idx <- match(input_source, tolower(allowed_sources))
-  
+
   if (is.na(matched_idx)) {
     stop("❌ `data_source` must be one of: ", paste(allowed_sources, collapse = ", "))
   }
-  
+
   # Store canonical label for logging (title-case)
   log_metadata$data_source <- allowed_sources[matched_idx]
-  
+
   # Store lowercase version separately if you need it for folder names
   folder_data_source <- tolower(allowed_sources[matched_idx])
-  
+
   # Validate user_note contains "fact" or "dim"
   if (is.null(user_note) ||
       is.na(user_note) ||
       !grepl("\\bfact\\b|\\bdim\\b", user_note, ignore.case = TRUE)) {
     stop("❌ Your `user_note` must clearly include either 'fact' or 'dim' in the note.")
   }
-  
+
   # Determine table suffix
   table_type <- tolower(
     stringr::str_extract(user_note, "\\b(fact|dim)\\b"))
   if (is.na(table_type)) {
     stop("❌ Your `user_note` must clearly include either 'fact' or 'dim'.")
   }
-  
+
   # Clean dim_description for file name (if provided)
   if (!is.null(dim_description)) {
     dim_description <- janitor::make_clean_names(dim_description)
   }
-  
+
   # Build enhanced table name
   final_table_name <- paste0(
     table_name,
     if (!is.null(dim_description)) paste0("_", dim_description),
     "_", table_type
   )
-  
+
   # Auto-generate saving path, T drive specific
   if (is.null(path)) {
     warehouse_dir <- "T:/Data Warehouse/Warehouse Ready Files"
@@ -176,16 +199,16 @@ safe_fwrite_warehouse <- function(data, path = NULL,
                       "Data Files",
                       folder_data_source,
                       paste0(final_table_name, ".csv"))
-    
+
     # Make sure the folder exists
     dir.create(dirname(path), recursive = TRUE, showWarnings = FALSE)
   }
-  
+
   # Apply compression if requested
   if (compress && !grepl("\\.gz$", path)) {
     path <- paste0(path, ".gz")
   }
-  
+
   if (file.exists(path) && !isTRUE(overwrite)) {
     stop(
       "Output file already exists: ",
@@ -193,9 +216,9 @@ safe_fwrite_warehouse <- function(data, path = NULL,
       ". Use `overwrite = TRUE` to replace it.",
       call. = FALSE)
   }
-  
+
   dir.create(dirname(path), recursive = TRUE, showWarnings = FALSE)
-  
+
   # Define required character columns based on table type.
   default_char_cols <- if (table_type == "dim") {
     c("cds", "county_code", "district_code", "school_code")
@@ -204,12 +227,12 @@ safe_fwrite_warehouse <- function(data, path = NULL,
   } else {
     stop("❌ Could not determine table type from `user_note`. Please include 'fact' or 'dim'.")
   }
-  
+
   # Filter to only existing columns in the data
   existing_char_cols <- intersect(
     unique(c(char_cols, default_char_cols)),
     names(data))
-  
+
   # Coerce character columns
   if (length(existing_char_cols) > 0L) {
     data <- dplyr::mutate(
@@ -218,11 +241,11 @@ safe_fwrite_warehouse <- function(data, path = NULL,
         dplyr::all_of(existing_char_cols),
         as.character))
   }
-  
+
   # Write the file
   data.table::fwrite(data, path)
   message("✅ File written: ", path)
-  
+
   # Preview first n rows with character column types enforced
   if (n_check > 0L) {
     preview <- if (length(existing_char_cols) > 0L) {
@@ -235,16 +258,16 @@ safe_fwrite_warehouse <- function(data, path = NULL,
     }
     print(preview)
   }
-  
+
   # File info
   file_info <- file.info(path)
   if (is.na(file_info$size)) {
     stop("File does not exist or is unreadable: ", path)
   }
-  
+
   canonical_table_id <- if (is.null(canonical_table_id)) table_name else canonical_table_id
   dimension_type     <- if (is.null(dimension_type)) NA_character_ else dimension_type
-  
+
   valid_dimension_types <- c("universal", "annualized", "other")
   if (!is.null(dimension_type) && !is.na(dimension_type)) {
     if (!tolower(dimension_type) %in% valid_dimension_types) {
@@ -253,7 +276,7 @@ safe_fwrite_warehouse <- function(data, path = NULL,
     }
     dimension_type <- tolower(dimension_type)
   }
-  
+
   # Construct and write log entry
   log_entry <- data.frame(
     timestamp = format(Sys.time(), "%Y-%m-%d %H:%M:%S"),
@@ -273,15 +296,15 @@ safe_fwrite_warehouse <- function(data, path = NULL,
     user = Sys.info()[["user"]],
     stringsAsFactors = FALSE
   )
-  
+
   if (isTRUE(write_log)) {
     dir.create(dirname(log_path), recursive = TRUE, showWarnings = FALSE)
-    
+
     if (file.exists(log_path)) {
       existing_log <- read.csv(log_path, stringsAsFactors = FALSE)
       match_idx <- which(
         existing_log$canonical_table_id == canonical_table_id)
-      
+
       if (length(match_idx) > 0L) {
         existing_log[match_idx[1], ] <- log_entry
         write.csv(existing_log, file = log_path, row.names = FALSE)
@@ -307,6 +330,6 @@ safe_fwrite_warehouse <- function(data, path = NULL,
       message("📄 New log created: ", log_path)
     }
   }
-  
+
   invisible(log_entry)
 }
