@@ -2,68 +2,84 @@
 % Please edit documentation in R/build_warehouse_path.R
 \name{build_warehouse_path}
 \alias{build_warehouse_path}
-\title{Build a standardized warehouse output path}
+\title{Construct a warehouse output path}
 \usage{
 build_warehouse_path(
   data_source,
-  data_category,
   table_name,
   table_type,
-  warehouse_root = "T:/Data Warehouse",
+  warehouse_root = "T:/Data Warehouse/Data & Scripts/Tableau Ready Files",
+  subdirectories = character(),
   compressed = FALSE
 )
 }
 \arguments{
-\item{data_source}{One of `"Assessment"`, `"Dashboard"`, or `"CDE"`.}
+\item{data_source}{Warehouse data source. Accepted values are
+`"Assessment"`, `"Dashboard"`, and `"CDE"`. Matching is case-insensitive.}
 
-\item{data_category}{Nonempty folder name within `data_source`, such as
-`"CAST"`, `"Enrollment"`, or `"Science"`.}
+\item{table_name}{Base table name without a `_fact` or `_dim` suffix.
+The name may contain only letters, numbers, and underscores.}
 
-\item{table_name}{Base warehouse table name using only letters, numbers,
-and underscores.}
+\item{table_type}{Table classification. Accepted values are `"fact"` and
+`"dimension"`. Matching is case-insensitive.}
 
-\item{table_type}{Either `"fact"` or `"dimension"`.}
+\item{warehouse_root}{Root directory containing the warehouse data-source
+folders. Defaults to
+`"T:/Data Warehouse/Data & Scripts/Tableau Ready Files"`.}
 
-\item{warehouse_root}{Root warehouse directory. Defaults to
-`"T:/Data Warehouse"`.}
+\item{subdirectories}{Optional character vector containing one or more
+folders to place beneath the data-source folder. For example,
+`"Dimensions"` or
+`c("Dimensions", "Annualized Dimensions")`. Use `NULL` or
+`character()` to write directly within the data-source folder.}
 
-\item{compressed}{If `TRUE`, return a path ending in `.csv.gz`; otherwise,
-return a path ending in `.csv`.}
+\item{compressed}{Logical. When `TRUE`, the returned filename ends in
+`.csv.gz`; otherwise, it ends in `.csv`.}
 }
 \value{
-A single character value containing the constructed file path.
+A character string containing the constructed output path.
 }
 \description{
-Constructs a warehouse CSV path from an explicit warehouse root, data
-source, category, table name, and table type. The function does not create
-directories or write files.
+Constructs a standardized output path within the Tableau-ready warehouse
+structure. The function only constructs and returns a path; it does not
+create directories or write files.
+
+Folder routing is controlled independently from export metadata. Values such
+as an assessment name or data category should be recorded by
+[safe_fwrite()] and do not automatically become folders.
 }
 \details{
-Folder categories are supplied explicitly rather than maintained in a
-hard-coded catalog. This allows Assessment, Dashboard, and CDE categories
-to evolve without changing this function.
+The function appends `_fact` to fact-table names and `_dim` to
+dimension-table names. `table_name` must not already contain either suffix.
 
+Each value supplied through `subdirectories` must be one folder name rather
+than a path. Path separators, parent-directory references, drive
+specifications, and Windows-invalid filename characters are rejected.
 
-Fact filenames receive the suffix `_fact`. Dimension filenames receive the
-suffix `_dim`.
-
-The function only constructs and validates the path. Directory creation,
-overwrite protection, writing, verification, and logging are handled by
-`safe_fwrite()`.
+No directories or files are created.
 }
 \examples{
 build_warehouse_path(
   data_source = "Assessment",
-  data_category = "CAST",
-  table_name = "cast_25_core",
+  table_name = "cast_core",
   table_type = "fact"
 )
 
 build_warehouse_path(
-  data_source = "CDE",
-  data_category = "Enrollment",
-  table_name = "enrollment_25_schools",
-  table_type = "dimension"
+  data_source = "Assessment",
+  table_name = "assessment_test",
+  table_type = "dimension",
+  subdirectories = "Dimensions"
+)
+
+build_warehouse_path(
+  data_source = "Assessment",
+  table_name = "cast_25_entities",
+  table_type = "dimension",
+  subdirectories = c(
+    "Dimensions",
+    "Annualized Dimensions"
+  )
 )
 
 }
