@@ -641,20 +641,17 @@ cde_context_classification_rows <- function(
   }
 
   # ---------------------------------------
-  # Suspension and expulsion gender codes
+  # Suspension, expulsion, and cumulative enrollment gender codes
   # ---------------------------------------
   #
-  # Beginning with 2019-20, suspension and
-  # expulsion files use GX for non-binary gender.
+  # Beginning with 2019-20, these files use GX for non-binary gender.
 
-  if (
+  if (((
     dataset == "discipline" &&
-    file_type %in% c(
-      "suspension",
-      "expulsion"
-    ) &&
-    data_year >= 20L
-  ) {
+    file_type %in% c("suspension", "expulsion")) ||
+    (dataset == "enrollment" &&
+       file_type == "cumulative")) &&
+    data_year >= 20L) {
     context_map <- dplyr::bind_rows(
       context_map,
       tibble::tribble(
@@ -673,7 +670,7 @@ cde_context_classification_rows <- function(
         4L,
         "Gender",
         paste(
-          "CDE suspension and expulsion files use GX",
+          "CDE suspension, expulsion, and cumulative enrollment files use GX",
           "for non-binary gender beginning in 2019-20."
         )
       )
