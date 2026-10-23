@@ -725,6 +725,42 @@ cde_context_classification_rows <- function(
       )
     )
   }
+  
+  # ---------------------------------------
+  # LTEL enrollment all-gender category
+  # ---------------------------------------
+  #
+  # LTEL enrollment files use ALL for all genders.
+  # Reuse the existing canonical all-gender category.
+  
+  if (
+    dataset == "enrollment" &&
+    file_type == "ltels_grade"
+  ) {
+    context_map <- dplyr::bind_rows(
+      context_map,
+      tibble::tribble(
+        ~variable_type,
+        ~source_value,
+        ~label,
+        ~num,
+        ~group_num,
+        ~group,
+        ~source_note,
+        
+        "reporting_category",
+        "ALL",
+        "All",
+        87L,
+        4L,
+        "Gender",
+        paste(
+          "Observed in LTEL enrollment files for 2019-2026:",
+          "ALL represents all genders."
+        )
+      )
+    )
+  }
 
   # ---------------------------------------
   # Absenteeism reporting categories
